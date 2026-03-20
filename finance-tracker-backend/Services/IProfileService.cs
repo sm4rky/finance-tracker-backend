@@ -1,0 +1,11 @@
+using System.Security.Claims;
+using finance_tracker_backend.Models;
+
+namespace finance_tracker_backend.Services;
+
+public interface IProfileService
+{
+    Task EnsureRecordExistsAsync(ClaimsPrincipal user, CancellationToken cancellationToken = default);
+
+    Task<Profile?> GetByIdAsync(Guid userId, CancellationToken cancellationToken = default);
+}

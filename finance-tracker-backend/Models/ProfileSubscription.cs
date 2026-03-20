@@ -6,7 +6,7 @@ namespace finance_tracker_backend.Models;
 [Table("profile_subscriptions")]
 public class ProfileSubscription : BaseModel
 {
-    [PrimaryKey("id")]
+    [PrimaryKey("id", shouldInsert: true)]
     public Guid Id { get; set; }
 
     [Column("profile_id")]
