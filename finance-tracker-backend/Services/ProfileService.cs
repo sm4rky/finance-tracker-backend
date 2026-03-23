@@ -7,11 +7,11 @@ namespace finance_tracker_backend.Services;
 
 public sealed class ProfileService(IProfileRepository profileRepository) : IProfileService
 {
-    public async Task EnsureRecordExistsAsync(ClaimsPrincipal user, CancellationToken cancellationToken = default)
+    public async Task<bool> EnsureRecordExistsAsync(ClaimsPrincipal user, CancellationToken cancellationToken = default)
     {
         var userId = RequireUserId(user);
         if (await profileRepository.ExistsAsync(userId, cancellationToken).ConfigureAwait(false))
-            return;
+            return false;
 
         var emailRaw = user.FindFirstValue("email");
         var email = string.IsNullOrWhiteSpace(emailRaw) ? null : emailRaw.Trim();
@@ -42,6 +42,7 @@ public sealed class ProfileService(IProfileRepository profileRepository) : IProf
                 UpdatedAt = now
             },
             cancellationToken).ConfigureAwait(false);
+        return true;
     }
 
     public Task<Profile?> GetByIdAsync(Guid userId, CancellationToken cancellationToken = default) =>

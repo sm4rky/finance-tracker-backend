@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using System.Text.Json;
 using finance_tracker_backend.Middleware;
 using finance_tracker_backend.Repositories;
@@ -32,6 +33,8 @@ builder.Services.AddCors(options =>
 // User JWTs: validate via Supabase Auth OIDC metadata → JWKS (JWT signing keys). No legacy JwtSecret in config.
 // See https://supabase.com/docs/guides/auth/jwts — use asymmetric signing keys in Dashboard; legacy-only HS256 may need migration.
 // appsettings: PublishableKey (client) + SecretKey (server Supabase.Client). OAuth callback = {url}/auth/v1/callback.
+// Auth email (confirm signup, reset password, magic link): Supabase Dashboard (Authentication → Emails) + Resend.
+// Product welcome after first profile row: Resend template from this API — see Resend:WelcomeTemplateId, Resend:From, IEmailService, email_logs.
 var jwtAudience = builder.Configuration["Supabase:Authentication:JwtAudience"] ?? "authenticated";
 var url = builder.Configuration["Supabase:Connection:Url"]?.TrimEnd('/');
 var secretKey = builder.Configuration["Supabase:Authentication:SecretKey"];
@@ -78,10 +81,31 @@ builder.Services.AddSingleton(_ => new Supabase.Client(
 // Repositories
 builder.Services.AddScoped<IProfileRepository, ProfileRepository>();
 builder.Services.AddScoped<IProfileSubscriptionRepository, ProfileSubscriptionRepository>();
+builder.Services.AddScoped<IEmailLogRepository, EmailLogRepository>();
 
 // Services
+builder.Services.AddHttpClient<IResendTemplateEmailSender, ResendTemplateEmailSender>((sp, client) =>
+{
+    var configuration = sp.GetRequiredService<IConfiguration>();
+
+    var baseUrl = configuration["Resend:BaseUrl"] ?? "https://api.resend.com/";
+    client.BaseAddress = new Uri(baseUrl);
+
+    var key = configuration["Resend:ApiKey"];
+    if (string.IsNullOrWhiteSpace(key))
+        throw new InvalidOperationException("Resend API key is not configured.");
+
+    client.DefaultRequestHeaders.Authorization =
+        new AuthenticationHeaderValue("Bearer", key);
+
+    client.DefaultRequestHeaders.Accept.Add(
+        new MediaTypeWithQualityHeaderValue("application/json"));
+
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
 builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<IProfileSubscriptionService, ProfileSubscriptionService>();
+builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IEnsureUserService, EnsureUserService>();
 
 var app = builder.Build();

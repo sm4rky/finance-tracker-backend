@@ -1,16 +1,16 @@
 using System.Security.Claims;
 using finance_tracker_backend.Contracts.Responses;
-using finance_tracker_backend.Models;
 
 namespace finance_tracker_backend.Services;
 
 public sealed class EnsureUserService(
     IProfileService profileService,
-    IProfileSubscriptionService profileSubscriptionService) : IEnsureUserService
+    IProfileSubscriptionService profileSubscriptionService,
+    IEmailService emailService) : IEnsureUserService
 {
     public async Task<EnsureUserResponse> EnsureAsync(ClaimsPrincipal user, CancellationToken cancellationToken = default)
     {
-        await profileService.EnsureRecordExistsAsync(user, cancellationToken).ConfigureAwait(false);
+        var created = await profileService.EnsureRecordExistsAsync(user, cancellationToken).ConfigureAwait(false);
         await profileSubscriptionService.EnsureDefaultFreePlanExistsAsync(user, cancellationToken)
             .ConfigureAwait(false);
 
@@ -31,6 +31,11 @@ public sealed class EnsureUserService(
         var fullName = string.IsNullOrWhiteSpace(profile.FullName) ? string.Empty : profile.FullName.Trim();
 
         var avatar = string.IsNullOrWhiteSpace(profile.AvatarUrl) ? null : profile.AvatarUrl.Trim();
+
+        if (created)
+            await emailService
+                .SendWelcomeForNewProfileAsync(userId, email, string.IsNullOrEmpty(fullName) ? null : fullName, cancellationToken)
+                .ConfigureAwait(false);
 
         return new EnsureUserResponse
         {

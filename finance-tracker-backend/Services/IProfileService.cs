@@ -5,7 +5,7 @@ namespace finance_tracker_backend.Services;
 
 public interface IProfileService
 {
-    Task EnsureRecordExistsAsync(ClaimsPrincipal user, CancellationToken cancellationToken = default);
+    Task<bool> EnsureRecordExistsAsync(ClaimsPrincipal user, CancellationToken cancellationToken = default);
 
     Task<Profile?> GetByIdAsync(Guid userId, CancellationToken cancellationToken = default);
 }

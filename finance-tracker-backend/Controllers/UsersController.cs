@@ -11,8 +11,9 @@ namespace finance_tracker_backend.Controllers;
 public sealed class UsersController(IEnsureUserService ensureUserService) : ControllerBase
 {
     /// <summary>
-    /// Idempotent: ensures public.profiles and default free public.profile_subscriptions for the JWT subject,
-    /// then returns a snapshot for the client (Zustand).
+    /// Idempotent: ensures public.profiles and default free public.profile_subscriptions for the JWT subject.
+    /// On first profile insert, sends welcome via Resend (Resend:WelcomeTemplateId) and records public.email_logs.
+    /// Supabase Auth emails (confirm signup, password reset, …) stay in the Supabase + Resend project settings.
     /// </summary>
     [HttpPost("ensure")]
     [Produces("application/json")]
