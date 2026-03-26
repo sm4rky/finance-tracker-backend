@@ -16,17 +16,17 @@ public class ProfileSubscription : BaseModel
     public string PlanId { get; set; } = string.Empty;
 
     [Column("start_date")]
-    public DateTime? StartDate { get; set; }
+    public DateTimeOffset? StartDate { get; set; }
 
     [Column("end_date")]
-    public DateTime? EndDate { get; set; }
+    public DateTimeOffset? EndDate { get; set; }
 
     [Column("canceled_at")]
-    public DateTime? CanceledAt { get; set; }
+    public DateTimeOffset? CanceledAt { get; set; }
 
     [Column("created_at")]
-    public DateTime CreatedAt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
 
     [Column("updated_at")]
-    public DateTime UpdatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
 }

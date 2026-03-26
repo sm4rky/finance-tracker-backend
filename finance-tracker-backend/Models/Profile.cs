@@ -25,8 +25,8 @@ public class Profile : BaseModel
     public string Role { get; set; } = "user";
 
     [Column("created_at")]
-    public DateTime CreatedAt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
 
     [Column("updated_at")]
-    public DateTime UpdatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
 }

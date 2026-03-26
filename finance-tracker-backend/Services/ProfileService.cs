@@ -30,7 +30,7 @@ public sealed class ProfileService(IProfileRepository profileRepository) : IProf
             }
             catch (JsonException) { }
 
-        var now = DateTime.UtcNow;
+        var now = DateTimeOffset.UtcNow;
         await profileRepository.InsertAsync(
             new Profile
             {

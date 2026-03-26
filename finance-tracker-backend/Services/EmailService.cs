@@ -25,7 +25,7 @@ public sealed class EmailService(
         }
 
         var templateId = configuration["Resend:WelcomeTemplateId"]?.Trim();
-        var now = DateTime.UtcNow;
+        var now = DateTimeOffset.UtcNow;
 
         if (string.IsNullOrEmpty(templateId))
         {
@@ -72,7 +72,7 @@ public sealed class EmailService(
         bool success,
         string? providerId,
         string? error,
-        DateTime createdAt,
+        DateTimeOffset createdAt,
         CancellationToken cancellationToken)
     {
         var log = new EmailLog

@@ -1,10 +1,26 @@
 using System.Net.Http.Headers;
 using System.Text.Json;
+using finance_tracker_backend.Infrastructure;
+using finance_tracker_backend.Jobs;
 using finance_tracker_backend.Middleware;
 using finance_tracker_backend.Repositories;
 using finance_tracker_backend.Services;
+using Going.Plaid;
+using Hangfire;
+using Hangfire.Common;
+using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+
+// Startup map — where integrations begin:
+// • Supabase: (1) JWT Bearer validates access tokens your frontend got from Supabase Auth (issuer = {Supabase:Connection:Url}/auth/v1, JWKS from OIDC metadata).
+//   (2) Supabase.Client singleton uses Supabase:Authentication:SecretKey (service_role / secret) — server-side PostgREST; bypasses RLS. Repositories inject this client.
+//   After Build: InitializeAsync() loads PostgREST schema. Config: Supabase:Connection:Url, Supabase:Authentication:*.
+// • Plaid: Going.Plaid PlaidClient registered below → IPlaidConnectionService → PlaidController (api/Plaid/*).
+//   Config: Infrastructure/PlaidConfiguration.cs + appsettings Plaid:*.
+// • Hangfire: PostgreSQL on ConnectionStrings:Default, schema "hangfire"; AddHangfireServer runs workers with the web app.
+//   After Build: IRecurringJobManager → ExpiredPlaidLinkSessionsCleanupJob (Hangfire:ExpiredPlaidLinkSessionsCleanupCron, default 03:00 UTC).
+// • Optional: /hangfire dashboard — add UseHangfireDashboard in Development if you want the UI (not enabled by default).
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -30,11 +46,7 @@ builder.Services.AddCors(options =>
     });
 });
 
-// User JWTs: validate via Supabase Auth OIDC metadata → JWKS (JWT signing keys). No legacy JwtSecret in config.
-// See https://supabase.com/docs/guides/auth/jwts — use asymmetric signing keys in Dashboard; legacy-only HS256 may need migration.
-// appsettings: PublishableKey (client) + SecretKey (server Supabase.Client). OAuth callback = {url}/auth/v1/callback.
-// Auth email (confirm signup, reset password, magic link): Supabase Dashboard (Authentication → Emails) + Resend.
-// Product welcome after first profile row: Resend template from this API — see Resend:WelcomeTemplateId, Resend:From, IEmailService, email_logs.
+// Supabase Auth — validate API JWTs (same project as Supabase:Connection:Url). Docs: https://supabase.com/docs/guides/auth/jwts
 var jwtAudience = builder.Configuration["Supabase:Authentication:JwtAudience"] ?? "authenticated";
 var url = builder.Configuration["Supabase:Connection:Url"]?.TrimEnd('/');
 var secretKey = builder.Configuration["Supabase:Authentication:SecretKey"];
@@ -42,9 +54,10 @@ if (string.IsNullOrWhiteSpace(url))
     throw new InvalidOperationException("Supabase:Connection:Url is required for JWT validation and Supabase client.");
 if (string.IsNullOrWhiteSpace(secretKey))
     throw new InvalidOperationException(
-        "Supabase:Authentication:SecretKey is required for server-side Supabase client (publishable/secret or legacy service_role). Use User Secrets.");
+        "Supabase:Authentication:SecretKey is required for server-side Supabase client. Use User Secrets.");
 
 var authIssuer = $"{url}/auth/v1";
+// JWT: Supabase Auth issuer + JWKS (see https://supabase.com/docs/guides/auth/jwts).
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -68,7 +81,7 @@ builder.Services
     });
 builder.Services.AddAuthorization();
 
-// Service-role Supabase client for server-side DB (bypasses RLS). Initialized once after Build.
+// Supabase server client (PostgREST + service key). Injected into *Repository; RLS is bypassed — enforce profile_id in queries.
 builder.Services.AddSingleton(_ => new Supabase.Client(
     url,
     secretKey,
@@ -78,10 +91,51 @@ builder.Services.AddSingleton(_ => new Supabase.Client(
         AutoConnectRealtime = false
     }));
 
+// Data protection (for Plaid access tokens).
+builder.Services.AddDataProtection();
+builder.Services.AddSingleton<PlaidAccessTokenProtector>();
+
+// Plaid API client (singleton). Used only by PlaidConnectionService.
+// Secrets/env: Infrastructure/PlaidConfiguration.cs + appsettings Plaid:* (ClientId, Environment, SandboxSecret|ProductionSecret).
+builder.Services.AddSingleton(sp =>
+{
+    var configuration = sp.GetRequiredService<IConfiguration>();
+    var secret = PlaidConfiguration.ResolveSecret(configuration);
+    var env = PlaidConfiguration.MapApiEnvironment(configuration["Plaid:Environment"]);
+    var clientId = (configuration["Plaid:ClientId"] ?? string.Empty).Trim();
+    return new PlaidClient(env, secret: secret, clientId: clientId);
+});
+
+// Hangfire: same Postgres as the app; creates schema "hangfire" for job storage.
+var hangfireConnection = builder.Configuration.GetConnectionString("Default");
+if (string.IsNullOrWhiteSpace(hangfireConnection))
+{
+    throw new InvalidOperationException(
+        "ConnectionStrings:Default must be set to a PostgreSQL connection string for Hangfire.");
+}
+
+// Hangfire: same Postgres as the app; creates schema "hangfire" for job storage.
+builder.Services.AddHangfire(configuration => configuration
+    .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+    .UseSimpleAssemblyNameTypeSerializer()
+    .UseRecommendedSerializerSettings()
+    .UsePostgreSqlStorage(
+        o => o.UseNpgsqlConnection(hangfireConnection),
+        new PostgreSqlStorageOptions
+        {
+            SchemaName = "hangfire",
+            PrepareSchemaIfNecessary = true
+        }));
+builder.Services.AddHangfireServer();
+builder.Services.AddTransient<ExpiredPlaidLinkSessionsCleanupJob>();
+
 // Repositories
 builder.Services.AddScoped<IProfileRepository, ProfileRepository>();
 builder.Services.AddScoped<IProfileSubscriptionRepository, ProfileSubscriptionRepository>();
 builder.Services.AddScoped<IEmailLogRepository, EmailLogRepository>();
+builder.Services.AddScoped<IPlaidLinkSessionRepository, PlaidLinkSessionRepository>();
+builder.Services.AddScoped<ILinkedBankRepository, LinkedBankRepository>();
+builder.Services.AddScoped<ILinkedBankAccountRepository, LinkedBankAccountRepository>();
 
 // Services
 builder.Services.AddHttpClient<IResendTemplateEmailSender, ResendTemplateEmailSender>((sp, client) =>
@@ -107,17 +161,26 @@ builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<IProfileSubscriptionService, ProfileSubscriptionService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IEnsureUserService, EnsureUserService>();
+builder.Services.AddScoped<IPlaidConnectionService, PlaidConnectionService>();
 
 var app = builder.Build();
 
 app.UseExceptionHandler();
 
+// Loads PostgREST table/column metadata for the Supabase.Client (required before repository calls).
 await app.Services.GetRequiredService<Supabase.Client>().InitializeAsync();
 
+// Hangfire recurring jobs must be registered after Build (needs IRecurringJobManager from DI).
+var expiredPlaidLinkSessionsCleanupCron =
+    app.Configuration["Hangfire:ExpiredPlaidLinkSessionsCleanupCron"] ?? "0 3 * * *";
+app.Services.GetRequiredService<IRecurringJobManager>().AddOrUpdate(
+    "expired-plaid-link-sessions-cleanup",
+    Job.FromExpression<ExpiredPlaidLinkSessionsCleanupJob>(job => job.RunAsync()),
+    expiredPlaidLinkSessionsCleanupCron,
+    new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+
 if (app.Environment.IsDevelopment())
-{
     app.MapOpenApi();
-}
 
 app.UseHttpsRedirection();
 app.UseCors(corsPolicyName);

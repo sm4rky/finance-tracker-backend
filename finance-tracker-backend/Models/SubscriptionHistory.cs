@@ -22,8 +22,8 @@ public class SubscriptionHistory : BaseModel
     public string? ToPlanId { get; set; }
 
     [Column("created_at")]
-    public DateTime CreatedAt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
 
     [Column("effective_at")]
-    public DateTime EffectiveAt { get; set; }
+    public DateTimeOffset EffectiveAt { get; set; }
 }

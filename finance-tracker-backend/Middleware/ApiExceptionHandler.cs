@@ -30,6 +30,14 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) : I
             return true;
         }
 
+        if (exception is ArgumentException ae)
+        {
+            logger.LogWarning(ae, "Bad request");
+            await WriteMessageAsync(httpContext, StatusCodes.Status400BadRequest, ae.Message, cancellationToken)
+                .ConfigureAwait(false);
+            return true;
+        }
+
         if (exception is InvalidOperationException ioe)
         {
             logger.LogWarning(ioe, "Invalid operation during request");

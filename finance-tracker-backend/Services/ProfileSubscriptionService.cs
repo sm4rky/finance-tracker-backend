@@ -16,7 +16,7 @@ public sealed class ProfileSubscriptionService(IProfileSubscriptionRepository pr
         if (await profileSubscriptionRepository.ExistsForProfileAsync(userId, cancellationToken).ConfigureAwait(false))
             return;
 
-        var now = DateTime.UtcNow;
+        var now = DateTimeOffset.UtcNow;
         await profileSubscriptionRepository.InsertAsync(
             new ProfileSubscription
             {

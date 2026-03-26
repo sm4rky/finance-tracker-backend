@@ -16,7 +16,7 @@ public class SubscriptionPayment : BaseModel
     public decimal Amount { get; set; }
 
     [Column("charged_at")]
-    public DateTime ChargedAt { get; set; }
+    public DateTimeOffset ChargedAt { get; set; }
 
     [Column("plan_id")]
     public string PlanId { get; set; } = string.Empty;
@@ -28,5 +28,5 @@ public class SubscriptionPayment : BaseModel
     public string? Reference { get; set; }
 
     [Column("created_at")]
-    public DateTime CreatedAt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
 }
