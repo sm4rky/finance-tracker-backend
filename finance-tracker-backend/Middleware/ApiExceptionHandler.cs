@@ -30,10 +30,32 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) : I
             return true;
         }
 
+        if (exception is SyncCooldownException cooldown)
+        {
+            logger.LogWarning(cooldown, "Sync cooldown");
+            var retrySeconds = Math.Max(1, (int)Math.Ceiling(cooldown.RetryAfter.TotalSeconds));
+            httpContext.Response.Headers.RetryAfter = retrySeconds.ToString();
+            await WriteMessageAsync(
+                    httpContext,
+                    StatusCodes.Status429TooManyRequests,
+                    cooldown.Message,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return true;
+        }
+
         if (exception is ArgumentException ae)
         {
             logger.LogWarning(ae, "Bad request");
             await WriteMessageAsync(httpContext, StatusCodes.Status400BadRequest, ae.Message, cancellationToken)
+                .ConfigureAwait(false);
+            return true;
+        }
+
+        if (exception is KeyNotFoundException knf)
+        {
+            logger.LogWarning(knf, "Resource not found");
+            await WriteMessageAsync(httpContext, StatusCodes.Status404NotFound, knf.Message, cancellationToken)
                 .ConfigureAwait(false);
             return true;
         }

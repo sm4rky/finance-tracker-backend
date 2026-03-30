@@ -23,12 +23,15 @@ public sealed class PlaidConnectionService(
     ILinkedBankRepository linkedBankRepository,
     ILinkedBankAccountRepository linkedBankAccountRepository,
     PlaidAccessTokenProtector tokenProtector,
+    IPlaidTransactionSyncService plaidTransactionSyncService,
     ILogger<PlaidConnectionService> logger) : IPlaidConnectionService
 {
     private readonly IConfigurationSection _plaid = configuration.GetSection("Plaid");
 
     private static readonly Products[] DefaultProducts = [Products.Transactions];
     private static readonly CountryCode[] DefaultCountries = [CountryCode.Us];
+
+    private const int MaxPlaidTransactionHistoryDaysRequested = 730;
 
     public async Task<CreatePlaidLinkTokenResponse> CreateLinkTokenAsync(
         ClaimsPrincipal user,
@@ -167,11 +170,28 @@ public sealed class PlaidConnectionService(
         var accountDtos = await SyncAccountsFromPlaidAsync(bank.Id, accountsResponse.Accounts.ToList(), now, cancellationToken)
             .ConfigureAwait(false);
 
-        bank.LastSyncedAt = now;
-        bank.UpdatedAt = now;
+        // LastSyncedAt is only for transaction-sync cooldown (set by PlaidTransactionSyncService). Clear it here so
+        // post-exchange sync always runs (including banks that had LastSyncedAt set incorrectly on a previous version).
+        bank.LastSyncedAt = null;
+        bank.UpdatedAt = DateTimeOffset.UtcNow;
         await linkedBankRepository.UpdateAsync(bank, cancellationToken).ConfigureAwait(false);
 
         await plaidLinkSessionRepository.DeleteByIdAndProfileAsync(session.Id, profileId, cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            // bypassCooldown: post-exchange sync must run even if last_synced_at could not be cleared in DB (e.g. relink).
+            await plaidTransactionSyncService
+                .SyncLinkedBankAsync(user, bank.Id, cancellationToken, bypassCooldown: true)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(
+                ex,
+                "Initial Plaid transaction sync after exchange failed (LinkedBankId={LinkedBankId}). Client can call sync again.",
+                bank.Id);
+        }
 
         return new ExchangePlaidPublicTokenResponse
         {
@@ -281,7 +301,8 @@ public sealed class PlaidConnectionService(
             User = new LinkTokenCreateRequestUser { ClientUserId = profileId.ToString("D", CultureInfo.InvariantCulture) },
             Products = DefaultProducts,
             CountryCodes = DefaultCountries,
-            Language = ResolveLinkLanguage(_plaid)
+            Language = ResolveLinkLanguage(_plaid),
+            Transactions = new LinkTokenTransactions { DaysRequested = MaxPlaidTransactionHistoryDaysRequested }
         };
 
         if (!string.IsNullOrWhiteSpace(_plaid["Webhook"]))

@@ -36,6 +36,9 @@ public class LinkedBank : BaseModel
     [Column("last_synced_at")]
     public DateTimeOffset? LastSyncedAt { get; set; }
 
+    [Column("plaid_transactions_cursor")]
+    public string? PlaidTransactionsCursor { get; set; }
+
     [Column("created_at")]
     public DateTimeOffset CreatedAt { get; set; }
 

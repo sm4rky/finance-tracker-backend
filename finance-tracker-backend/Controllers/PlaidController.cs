@@ -1,16 +1,19 @@
 using finance_tracker_backend.Contracts.Requests;
 using finance_tracker_backend.Contracts.Responses;
+using finance_tracker_backend.Middleware;
 using finance_tracker_backend.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace finance_tracker_backend.Controllers;
 
-/// <summary>HTTP API for Plaid (link token, exchange, list/disconnect banks). Business logic: <see cref="IPlaidConnectionService"/>.</summary>
+/// <summary>HTTP API for Plaid (link token, exchange, list/disconnect banks, transaction sync). Business logic: <see cref="IPlaidConnectionService"/>, <see cref="IPlaidTransactionSyncService"/>.</summary>
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
-public sealed class PlaidController(IPlaidConnectionService plaidConnectionService) : ControllerBase
+public sealed class PlaidController(
+    IPlaidConnectionService plaidConnectionService,
+    IPlaidTransactionSyncService plaidTransactionSyncService) : ControllerBase
 {
     [HttpPost("link-token")]
     [Produces("application/json")]
@@ -74,6 +77,22 @@ public sealed class PlaidController(IPlaidConnectionService plaidConnectionServi
         CancellationToken cancellationToken)
     {
         var dto = await plaidConnectionService.HardDeleteAsync(User, linkedBankId, cancellationToken).ConfigureAwait(false);
+        return Ok(dto);
+    }
+
+    [HttpPost("connections/{linkedBankId:guid}/transactions/sync")]
+    [Produces("application/json")]
+    [ProducesResponseType(typeof(SyncPlaidTransactionsResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+    public async Task<ActionResult<SyncPlaidTransactionsResponse>> SyncTransactionsForBank(
+        Guid linkedBankId,
+        CancellationToken cancellationToken)
+    {
+        var dto = await plaidTransactionSyncService.SyncLinkedBankAsync(User, linkedBankId, cancellationToken)
+            .ConfigureAwait(false);
         return Ok(dto);
     }
 }

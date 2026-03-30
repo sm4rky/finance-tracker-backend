@@ -55,6 +55,7 @@ public sealed class LinkedBankRepository(Supabase.Client supabaseClient) : ILink
             .Set(b => b.TokenRemovedAt!, bank.TokenRemovedAt)
             .Set(b => b.DisconnectedAt!, bank.DisconnectedAt)
             .Set(b => b.LastSyncedAt!, bank.LastSyncedAt)
+            .Set(b => b.PlaidTransactionsCursor!, bank.PlaidTransactionsCursor)
             .Set(b => b.UpdatedAt, bank.UpdatedAt)
             .Update(null, cancellationToken)
             .ConfigureAwait(false);

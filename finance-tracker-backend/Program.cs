@@ -16,7 +16,7 @@ using Microsoft.IdentityModel.Tokens;
 // • Supabase: (1) JWT Bearer validates access tokens your frontend got from Supabase Auth (issuer = {Supabase:Connection:Url}/auth/v1, JWKS from OIDC metadata).
 //   (2) Supabase.Client singleton uses Supabase:Authentication:SecretKey (service_role / secret) — server-side PostgREST; bypasses RLS. Repositories inject this client.
 //   After Build: InitializeAsync() loads PostgREST schema. Config: Supabase:Connection:Url, Supabase:Authentication:*.
-// • Plaid: Going.Plaid PlaidClient registered below → IPlaidConnectionService → PlaidController (api/Plaid/*).
+// • Plaid: Going.Plaid PlaidClient registered below → IPlaidConnectionService + IPlaidTransactionSyncService → PlaidController (api/Plaid/*).
 //   Config: Infrastructure/PlaidConfiguration.cs + appsettings Plaid:*.
 // • Hangfire: PostgreSQL on ConnectionStrings:Default, schema "hangfire"; AddHangfireServer runs workers with the web app.
 //   After Build: IRecurringJobManager → ExpiredPlaidLinkSessionsCleanupJob (Hangfire:ExpiredPlaidLinkSessionsCleanupCron, default 03:00 UTC).
@@ -136,6 +136,8 @@ builder.Services.AddScoped<IEmailLogRepository, EmailLogRepository>();
 builder.Services.AddScoped<IPlaidLinkSessionRepository, PlaidLinkSessionRepository>();
 builder.Services.AddScoped<ILinkedBankRepository, LinkedBankRepository>();
 builder.Services.AddScoped<ILinkedBankAccountRepository, LinkedBankAccountRepository>();
+builder.Services.AddScoped<ITransactionRepository, TransactionRepository>();
+builder.Services.AddScoped<IPlaidFinanceCategoryPrimaryRepository, PlaidFinanceCategoryPrimaryRepository>();
 
 // Services
 builder.Services.AddHttpClient<IResendTemplateEmailSender, ResendTemplateEmailSender>((sp, client) =>
@@ -162,6 +164,9 @@ builder.Services.AddScoped<IProfileSubscriptionService, ProfileSubscriptionServi
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IEnsureUserService, EnsureUserService>();
 builder.Services.AddScoped<IPlaidConnectionService, PlaidConnectionService>();
+builder.Services.AddScoped<IPlaidTransactionSyncService, PlaidTransactionSyncService>();
+builder.Services.AddScoped<ITransactionService, TransactionService>();
+builder.Services.AddScoped<IPlaidFinanceCategoryPrimaryReadService, PlaidFinanceCategoryPrimaryReadService>();
 
 var app = builder.Build();
 

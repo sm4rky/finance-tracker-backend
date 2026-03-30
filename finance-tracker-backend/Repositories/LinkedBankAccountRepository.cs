@@ -4,6 +4,19 @@ namespace finance_tracker_backend.Repositories;
 
 public sealed class LinkedBankAccountRepository(Supabase.Client supabaseClient) : ILinkedBankAccountRepository
 {
+    public async Task<LinkedBankAccount?> GetByLinkedBankAndPlaidAccountIdAsync(
+        Guid linkedBankId,
+        string plaidAccountId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await supabaseClient.From<LinkedBankAccount>()
+            .Where(a => a.LinkedBankId == linkedBankId)
+            .Where(a => a.PlaidAccountId == plaidAccountId)
+            .Get(cancellationToken)
+            .ConfigureAwait(false);
+        return result.Models.Count > 0 ? result.Models[0] : null;
+    }
+
     public async Task<IReadOnlyList<LinkedBankAccount>> ListByLinkedBankIdAsync(
         Guid linkedBankId,
         CancellationToken cancellationToken = default)
