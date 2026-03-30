@@ -1,3 +1,5 @@
+using System.ComponentModel;
+
 namespace finance_tracker_backend.Contracts.Requests;
 
 public sealed class QueryTransactionsRequest
@@ -6,4 +8,13 @@ public sealed class QueryTransactionsRequest
     public int? Limit { get; set; }
     public string? SortBy { get; set; }
     public string? SortDirection { get; set; }
+    public List<Guid>? AccountIds { get; set; }
+    public List<string>? PfcPrimaryList { get; set; }
+    public List<string>? PaymentChannels { get; set; }
+    public bool? Pending { get; set; }
+    public string? DateFrom { get; set; }
+    public string? DateTo { get; set; }
+    public decimal? AmountMin { get; set; }
+    public decimal? AmountMax { get; set; }
+    public string? AmountFlow { get; set; }
 }

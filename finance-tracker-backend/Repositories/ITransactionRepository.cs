@@ -1,5 +1,6 @@
 using finance_tracker_backend.Enums;
 using finance_tracker_backend.Models;
+using finance_tracker_backend.Types;
 
 namespace finance_tracker_backend.Repositories;
 
@@ -20,13 +21,13 @@ public interface ITransactionRepository
         DateTimeOffset removedAt,
         CancellationToken cancellationToken = default);
 
-    Task<long> CountAsync(Guid profileId, CancellationToken cancellationToken = default);
+    Task<long> CountAsync(
+        Guid profileId,
+        TransactionQueryFilters query,
+        CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<Transaction>> QueryPagedAsync(
         Guid profileId,
-        int offset,
-        int limit,
-        TransactionSortByField sortBy,
-        bool descending,
+        TransactionQueryFilters query,
         CancellationToken cancellationToken = default);
 }

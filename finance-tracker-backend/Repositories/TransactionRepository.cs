@@ -1,6 +1,8 @@
+using System.Globalization;
+using System.Text;
 using finance_tracker_backend.Enums;
 using finance_tracker_backend.Models;
-using Microsoft.Extensions.Configuration;
+using finance_tracker_backend.Types;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -77,62 +79,79 @@ public sealed class TransactionRepository(
             .ConfigureAwait(false);
     }
 
-    public async Task<long> CountAsync(Guid profileId, CancellationToken cancellationToken = default)
+    public async Task<long> CountAsync(Guid profileId, TransactionQueryFilters query, CancellationToken cancellationToken = default)
     {
-        var cs = configuration.GetConnectionString("Default");
-        if (string.IsNullOrWhiteSpace(cs))
-            throw new InvalidOperationException("ConnectionStrings:Default is required for transaction list pagination.");
+        ValidateFilterFields(query);
 
-        const string sql = """
-            SELECT COUNT(*)::bigint
-            FROM transactions
+        var cs = GetRequiredConnectionString();
+
+        var where = new StringBuilder(
+            """
             WHERE profile_id = @profile_id
-              AND removed_at IS NULL;
-            """;
+              AND removed_at IS NULL
+            """);
 
         await using var conn = new NpgsqlConnection(cs);
         await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await using var cmd = new NpgsqlCommand(sql, conn);
+
+        await using var cmd = new NpgsqlCommand(null, conn);
         cmd.Parameters.AddWithValue("profile_id", profileId);
+
+        AppendTransactionFilters(cmd, where, query);
+
+        cmd.CommandText = $"""
+                           SELECT COUNT(*)::bigint
+                           FROM transactions
+                           {where}
+                           """;
+
         var scalar = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-        return scalar is long l ? l : Convert.ToInt64(scalar, System.Globalization.CultureInfo.InvariantCulture);
+        return scalar is long l
+            ? l
+            : Convert.ToInt64(scalar, CultureInfo.InvariantCulture);
     }
 
     public async Task<IReadOnlyList<Transaction>> QueryPagedAsync(
         Guid profileId,
-        int offset,
-        int limit,
-        TransactionSortByField sortBy,
-        bool descending,
+        TransactionQueryFilters query,
         CancellationToken cancellationToken = default)
     {
-        var cs = configuration.GetConnectionString("Default");
-        if (string.IsNullOrWhiteSpace(cs))
-            throw new InvalidOperationException("ConnectionStrings:Default is required for transaction list pagination.");
+        ValidatePagedQuery(query);
 
-        var orderBy = BuildOrderByClause(sortBy, descending);
-        var sql = $"""
-            SELECT id, profile_id, linked_bank_account_id, plaid_transaction_id, amount, iso_currency_code,
-                   date, authorized_date, authorized_datetime, name, merchant_name, merchant_entity_id,
-                   pending, pending_transaction_id, payment_channel, transaction_type,
-                   pfc_primary, pfc_detailed, pfc_confidence_level, pfc_version,
-                   logo_url, website, status, removed_at, created_at, updated_at
-            FROM transactions
+        var cs = GetRequiredConnectionString();
+        var orderBy = BuildOrderByClause(query.SortBy, query.Descending);
+
+        var where = new StringBuilder(
+            """
             WHERE profile_id = @profile_id
               AND removed_at IS NULL
-            ORDER BY {orderBy}
-            OFFSET @offset
-            LIMIT @limit;
-            """;
+            """);
 
         await using var conn = new NpgsqlConnection(cs);
         await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await using var cmd = new NpgsqlCommand(sql, conn);
+
+        await using var cmd = new NpgsqlCommand(null, conn);
         cmd.Parameters.AddWithValue("profile_id", profileId);
-        cmd.Parameters.AddWithValue("offset", offset);
-        cmd.Parameters.AddWithValue("limit", limit);
+
+        AppendTransactionFilters(cmd, where, query);
+        cmd.Parameters.AddWithValue("offset", query.Offset);
+        cmd.Parameters.AddWithValue("limit", query.Limit);
+
+        cmd.CommandText = $"""
+                           SELECT id, profile_id, linked_bank_account_id, plaid_transaction_id, amount, iso_currency_code,
+                                  date, authorized_date, authorized_datetime, name, merchant_name, merchant_entity_id,
+                                  pending, pending_transaction_id, payment_channel, transaction_type,
+                                  pfc_primary, pfc_detailed, pfc_confidence_level, pfc_version,
+                                  logo_url, website, status, removed_at, created_at, updated_at
+                           FROM transactions
+                           {where}
+                           ORDER BY {orderBy}
+                           OFFSET @offset
+                           LIMIT @limit;
+                           """;
 
         var list = new List<Transaction>();
+
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             list.Add(ReadTransactionRow(reader));
@@ -140,54 +159,215 @@ public sealed class TransactionRepository(
         return list;
     }
 
-    /// <summary>Whitelist-only ORDER BY fragments; tie-break on <c>id</c>. Nullable columns use <c>NULLS LAST</c>.</summary>
-    private static string BuildOrderByClause(TransactionSortByField sortBy, bool descending)
+    private string GetRequiredConnectionString()
     {
-        var dir = descending ? "DESC" : "ASC";
-        var idDir = descending ? "DESC" : "ASC";
+        var cs = configuration.GetConnectionString("Default");
+        if (string.IsNullOrWhiteSpace(cs))
+            throw new InvalidOperationException(
+                "ConnectionStrings:Default is required for transaction list pagination.");
+
+        return cs;
+    }
+
+    private static void ValidatePagedQuery(TransactionQueryFilters query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        if (query.Offset < 0)
+            throw new ArgumentOutOfRangeException(nameof(query.Offset), "Offset must be >= 0.");
+
+        if (query.Limit <= 0)
+            throw new ArgumentOutOfRangeException(nameof(query.Limit), "Limit must be > 0.");
+
+        ValidateFilterFields(query);
+    }
+
+    private static void ValidateFilterFields(TransactionQueryFilters query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        if (query.DateFromInclusive is { } from &&
+            query.DateToInclusive is { } to &&
+            from > to)
+        {
+            throw new ArgumentException("DateFromInclusive cannot be greater than DateToInclusive.");
+        }
+
+        if (query.AbsAmountMin is < 0)
+            throw new ArgumentException("AbsAmountMin must be non-negative.");
+
+        if (query.AbsAmountMax is < 0)
+            throw new ArgumentException("AbsAmountMax must be non-negative.");
+
+        if (query.AbsAmountMin is { } min &&
+            query.AbsAmountMax is { } max &&
+            min > max)
+        {
+            throw new ArgumentException("AbsAmountMin cannot be greater than AbsAmountMax.");
+        }
+    }
+
+    private static void AppendTransactionFilters(
+        NpgsqlCommand cmd,
+        StringBuilder where,
+        TransactionQueryFilters filters)
+    {
+        if (filters.AccountIds.Count > 0)
+        {
+            where.Append(" AND linked_bank_account_id = ANY(@filter_account_ids)");
+            cmd.Parameters.Add(new NpgsqlParameter("filter_account_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid)
+            {
+                Value = filters.AccountIds.Distinct().ToArray()
+            });
+        }
+
+        var hasPfc = filters.PfcPrimaryList.Count > 0;
+        var hasUncategorized = filters.IncludePfcUncategorized;
+
+        if (hasPfc || hasUncategorized)
+        {
+            where.Append(" AND (");
+
+            switch (hasPfc)
+            {
+                case true when hasUncategorized:
+                    where.Append("lower(coalesce(pfc_primary, '')) = ANY(@filter_pfc_primary_list) OR ");
+                    AppendPfcUncategorizedPredicate(where);
+                    break;
+                case true:
+                    where.Append("lower(coalesce(pfc_primary, '')) = ANY(@filter_pfc_primary_list)");
+                    break;
+                default:
+                    AppendPfcUncategorizedPredicate(where);
+                    break;
+            }
+
+            where.Append(')');
+
+            if (hasPfc)
+            {
+                var pfcLower = filters.PfcPrimaryList
+                    .Distinct(StringComparer.Ordinal)
+                    .Select(s => s.ToLowerInvariant())
+                    .ToArray();
+                cmd.Parameters.Add(
+                    new NpgsqlParameter("filter_pfc_primary_list", NpgsqlDbType.Array | NpgsqlDbType.Text)
+                    {
+                        Value = pfcLower
+                    });
+            }
+        }
+
+        if (filters.PaymentChannels.Count > 0)
+        {
+            where.Append(" AND lower(coalesce(payment_channel, '')) = ANY(@filter_payment_channels)");
+            var channelsLower = filters.PaymentChannels
+                .Distinct(StringComparer.Ordinal)
+                .Select(s => s.ToLowerInvariant())
+                .ToArray();
+            cmd.Parameters.Add(new NpgsqlParameter("filter_payment_channels", NpgsqlDbType.Array | NpgsqlDbType.Text)
+            {
+                Value = channelsLower
+            });
+        }
+
+        if (filters.Pending is { } pending)
+        {
+            where.Append(" AND pending = @filter_pending");
+            cmd.Parameters.AddWithValue("filter_pending", pending);
+        }
+
+        if (filters.DateFromInclusive is { } dateFrom)
+        {
+            where.Append(" AND date >= @filter_date_from");
+            cmd.Parameters.Add(new NpgsqlParameter("filter_date_from", NpgsqlDbType.Date)
+            {
+                Value = dateFrom
+            });
+        }
+
+        if (filters.DateToInclusive is { } dateTo)
+        {
+            where.Append(" AND date <= @filter_date_to");
+            cmd.Parameters.Add(new NpgsqlParameter("filter_date_to", NpgsqlDbType.Date)
+            {
+                Value = dateTo
+            });
+        }
+
+        if (filters.AbsAmountMin is { } absAmountMin)
+        {
+            where.Append(" AND abs(amount) >= @filter_abs_amount_min");
+            cmd.Parameters.AddWithValue("filter_abs_amount_min", absAmountMin);
+        }
+
+        if (filters.AbsAmountMax is { } absAmountMax)
+        {
+            where.Append(" AND abs(amount) <= @filter_abs_amount_max");
+            cmd.Parameters.AddWithValue("filter_abs_amount_max", absAmountMax);
+        }
+
+        if (filters.AmountFlow is { } flow)
+        {
+            where.Append(flow == TransactionFlow.Income
+                ? " AND amount < 0"
+                : " AND amount > 0");
+        }
+    }
+
+    private static void AppendPfcUncategorizedPredicate(StringBuilder where)
+    {
+        where.Append("pfc_primary IS NULL");
+    }
+    
+    private static string BuildOrderByClause(TransactionSortField sortBy, bool descending)
+    {
+        var direction = descending ? "DESC" : "ASC";
+        var idDirection = descending ? "DESC" : "ASC";
         const string nullsLast = "NULLS LAST";
         var primary = sortBy switch
         {
-            TransactionSortByField.Date => $"date {dir}",
-            TransactionSortByField.MerchantName => $"COALESCE(merchant_name, name) {dir} {nullsLast}",
-            TransactionSortByField.LinkedBankAccountId => $"linked_bank_account_id {dir} {nullsLast}",
-            TransactionSortByField.PfcPrimary => $"pfc_primary {dir} {nullsLast}",
-            TransactionSortByField.PfcDetailed => $"pfc_detailed {dir} {nullsLast}",
-            TransactionSortByField.Amount => $"amount {dir}",
-            TransactionSortByField.PaymentChannel => $"payment_channel {dir} {nullsLast}",
-            TransactionSortByField.Pending => $"pending {dir}",
+            TransactionSortField.Date => $"date {direction}",
+            TransactionSortField.MerchantName => $"COALESCE(merchant_name, name) {direction} {nullsLast}",
+            TransactionSortField.LinkedBankAccountId => $"linked_bank_account_id {direction} {nullsLast}",
+            TransactionSortField.PfcPrimary => $"pfc_primary {direction} {nullsLast}",
+            TransactionSortField.PfcDetailed => $"pfc_detailed {direction} {nullsLast}",
+            TransactionSortField.Amount => $"amount {direction}",
+            TransactionSortField.PaymentChannel => $"payment_channel {direction} {nullsLast}",
+            TransactionSortField.Pending => $"pending {direction}",
             _ => throw new ArgumentOutOfRangeException(nameof(sortBy), sortBy, null)
         };
-        return $"{primary}, id {idDir}";
+
+        return $"{primary}, id {idDirection}";
     }
 
-    private static Transaction ReadTransactionRow(NpgsqlDataReader r) => new()
+    private static Transaction ReadTransactionRow(NpgsqlDataReader reader) => new()
     {
-        Id = r.GetGuid(0),
-        ProfileId = r.GetGuid(1),
-        LinkedBankAccountId = r.IsDBNull(2) ? null : r.GetGuid(2),
-        PlaidTransactionId = r.GetString(3),
-        Amount = r.GetDecimal(4),
-        IsoCurrencyCode = r.IsDBNull(5) ? null : r.GetString(5),
-        Date = r.GetFieldValue<DateOnly>(6),
-        AuthorizedDate = r.IsDBNull(7) ? null : r.GetFieldValue<DateOnly>(7),
-        AuthorizedDatetime = r.IsDBNull(8) ? null : r.GetFieldValue<DateTimeOffset>(8),
-        Name = r.GetString(9),
-        MerchantName = r.IsDBNull(10) ? null : r.GetString(10),
-        MerchantEntityId = r.IsDBNull(11) ? null : r.GetString(11),
-        Pending = r.GetBoolean(12),
-        PendingTransactionId = r.IsDBNull(13) ? null : r.GetString(13),
-        PaymentChannel = r.IsDBNull(14) ? null : r.GetString(14),
-        TransactionType = r.IsDBNull(15) ? null : r.GetString(15),
-        PfcPrimary = r.IsDBNull(16) ? null : r.GetString(16),
-        PfcDetailed = r.IsDBNull(17) ? null : r.GetString(17),
-        PfcConfidenceLevel = r.IsDBNull(18) ? null : r.GetString(18),
-        PfcVersion = r.IsDBNull(19) ? null : r.GetString(19),
-        LogoUrl = r.IsDBNull(20) ? null : r.GetString(20),
-        Website = r.IsDBNull(21) ? null : r.GetString(21),
-        Status = r.GetString(22),
-        RemovedAt = r.IsDBNull(23) ? null : r.GetFieldValue<DateTimeOffset>(23),
-        CreatedAt = r.GetFieldValue<DateTimeOffset>(24),
-        UpdatedAt = r.GetFieldValue<DateTimeOffset>(25)
+        Id = reader.GetGuid(0),
+        ProfileId = reader.GetGuid(1),
+        LinkedBankAccountId = reader.IsDBNull(2) ? null : reader.GetGuid(2),
+        PlaidTransactionId = reader.GetString(3),
+        Amount = reader.GetDecimal(4),
+        IsoCurrencyCode = reader.IsDBNull(5) ? null : reader.GetString(5),
+        Date = reader.GetFieldValue<DateOnly>(6),
+        AuthorizedDate = reader.IsDBNull(7) ? null : reader.GetFieldValue<DateOnly>(7),
+        AuthorizedDatetime = reader.IsDBNull(8) ? null : reader.GetFieldValue<DateTimeOffset>(8),
+        Name = reader.GetString(9),
+        MerchantName = reader.IsDBNull(10) ? null : reader.GetString(10),
+        MerchantEntityId = reader.IsDBNull(11) ? null : reader.GetString(11),
+        Pending = reader.GetBoolean(12),
+        PendingTransactionId = reader.IsDBNull(13) ? null : reader.GetString(13),
+        PaymentChannel = reader.IsDBNull(14) ? null : reader.GetString(14),
+        TransactionType = reader.IsDBNull(15) ? null : reader.GetString(15),
+        PfcPrimary = reader.IsDBNull(16) ? null : reader.GetString(16),
+        PfcDetailed = reader.IsDBNull(17) ? null : reader.GetString(17),
+        PfcConfidenceLevel = reader.IsDBNull(18) ? null : reader.GetString(18),
+        PfcVersion = reader.IsDBNull(19) ? null : reader.GetString(19),
+        LogoUrl = reader.IsDBNull(20) ? null : reader.GetString(20),
+        Website = reader.IsDBNull(21) ? null : reader.GetString(21),
+        Status = reader.GetString(22),
+        RemovedAt = reader.IsDBNull(23) ? null : reader.GetFieldValue<DateTimeOffset>(23),
+        CreatedAt = reader.GetFieldValue<DateTimeOffset>(24),
+        UpdatedAt = reader.GetFieldValue<DateTimeOffset>(25)
     };
 }

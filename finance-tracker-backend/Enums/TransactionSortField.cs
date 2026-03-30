@@ -1,6 +1,6 @@
 namespace finance_tracker_backend.Enums;
 
-public enum TransactionSortByField
+public enum TransactionSortField
 {
     MerchantName,
     LinkedBankAccountId,
