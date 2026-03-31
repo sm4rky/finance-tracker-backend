@@ -87,6 +87,7 @@ public sealed class PlaidController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<SyncPlaidTransactionsResponse>> SyncTransactionsForBank(
         Guid linkedBankId,
         CancellationToken cancellationToken)

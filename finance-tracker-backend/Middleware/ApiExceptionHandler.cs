@@ -30,6 +30,14 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) : I
             return true;
         }
 
+        if (exception is PlaidItemRelinkRequiredException relink)
+        {
+            logger.LogWarning(relink, "Plaid item requires relink");
+            await WriteMessageAsync(httpContext, StatusCodes.Status409Conflict, relink.Message, cancellationToken)
+                .ConfigureAwait(false);
+            return true;
+        }
+
         if (exception is SyncCooldownException cooldown)
         {
             logger.LogWarning(cooldown, "Sync cooldown");

@@ -33,9 +33,6 @@ public sealed class PlaidTransactionSyncService(
         if (bank is null)
             throw new KeyNotFoundException("Linked bank was not found.");
 
-        if (bank.Status != "active")
-            throw new InvalidOperationException("Only active connections can sync transactions.");
-
         if (string.IsNullOrWhiteSpace(bank.PlaidAccessTokenEncrypted))
             throw new InvalidOperationException("This connection has no Plaid access token.");
 
@@ -74,7 +71,21 @@ public sealed class PlaidTransactionSyncService(
             var response = await plaidClient.TransactionsSyncAsync(request).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                var detail = response.Error?.ErrorMessage ?? response.Error?.ErrorCode ?? "Unknown Plaid error";
+                var errorCode = response.Error?.ErrorCode?.ToString();
+                if (IsItemLoginRequiredError(errorCode, response.Error?.ErrorMessage))
+                {
+                    bank.Status = "relink_required";
+                    bank.UpdatedAt = DateTimeOffset.UtcNow;
+                    await linkedBankRepository.UpdateAsync(bank, cancellationToken).ConfigureAwait(false);
+                    logger.LogWarning(
+                        "Plaid ITEM_LOGIN_REQUIRED; linked_bank {LinkedBankId} set to relink_required (request_id={RequestId})",
+                        bank.Id,
+                        response.RequestId);
+                    throw new PlaidItemRelinkRequiredException(
+                        "This bank connection must be updated in Plaid Link (sign in again). The connection is marked as requiring relink.");
+                }
+
+                var detail = response.Error?.ErrorMessage ?? errorCode ?? "Unknown Plaid error";
                 logger.LogWarning("Plaid transactions/sync failed: {Detail} (request_id={RequestId})", detail, response.RequestId);
                 throw new InvalidOperationException($"Plaid transactions/sync failed: {detail}");
             }
@@ -109,6 +120,8 @@ public sealed class PlaidTransactionSyncService(
         var syncedAt = DateTimeOffset.UtcNow;
         bank.LastSyncedAt = syncedAt;
         bank.UpdatedAt = syncedAt;
+        if (bank.Status == "relink_required")
+            bank.Status = "active";
         await linkedBankRepository.UpdateAsync(bank, cancellationToken).ConfigureAwait(false);
 
         return new SyncPlaidTransactionsResponse
@@ -209,5 +222,19 @@ public sealed class PlaidTransactionSyncService(
         row.Status = status;
         row.RemovedAt = null;
         row.UpdatedAt = now;
+    }
+
+    private static bool IsItemLoginRequiredError(string? errorCode, string? errorMessage)
+    {
+        if (!string.IsNullOrEmpty(errorCode) &&
+            string.Equals(errorCode, "ITEM_LOGIN_REQUIRED", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (string.IsNullOrEmpty(errorMessage))
+            return false;
+
+        return errorMessage.Contains("ITEM_LOGIN_REQUIRED", StringComparison.OrdinalIgnoreCase)
+            || errorMessage.Contains("user login is required", StringComparison.OrdinalIgnoreCase)
+            || errorMessage.Contains("update mode", StringComparison.OrdinalIgnoreCase);
     }
 }
