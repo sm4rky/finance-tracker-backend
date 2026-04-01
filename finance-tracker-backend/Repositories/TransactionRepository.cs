@@ -79,6 +79,34 @@ public sealed class TransactionRepository(
             .ConfigureAwait(false);
     }
 
+    public async Task<int> DeleteByProfileAndLinkedBankIdAsync(
+        Guid profileId,
+        Guid linkedBankId,
+        CancellationToken cancellationToken = default)
+    {
+        var cs = GetRequiredConnectionString();
+        await using var conn = new NpgsqlConnection(cs);
+        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = new NpgsqlCommand(
+            """
+            DELETE FROM transactions t
+            WHERE t.profile_id = @profile_id
+              AND EXISTS (
+                  SELECT 1
+                  FROM linked_bank_accounts a
+                  INNER JOIN linked_banks b ON b.id = a.linked_bank_id
+                  WHERE a.id = t.linked_bank_account_id
+                    AND a.linked_bank_id = @linked_bank_id
+                    AND b.profile_id = @profile_id
+              )
+            """,
+            conn);
+        cmd.Parameters.AddWithValue("profile_id", profileId);
+        cmd.Parameters.AddWithValue("linked_bank_id", linkedBankId);
+        var n = await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        return n;
+    }
+
     public async Task<long> CountAsync(Guid profileId, TransactionQueryFilters query, CancellationToken cancellationToken = default)
     {
         ValidateFilterFields(query);

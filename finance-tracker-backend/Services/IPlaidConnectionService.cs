@@ -25,8 +25,8 @@ public interface IPlaidConnectionService
         Guid linkedBankId,
         CancellationToken cancellationToken = default);
 
-    Task<HardDeleteLinkedBankResponse> HardDeleteAsync(
+    Task<UnlinkInstitutionResponse> UnlinkInstitutionAsync(
         ClaimsPrincipal user,
-        Guid linkedBankId,
+        UnlinkInstitutionRequest request,
         CancellationToken cancellationToken = default);
 }

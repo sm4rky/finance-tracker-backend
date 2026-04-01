@@ -7,7 +7,6 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace finance_tracker_backend.Controllers;
 
-/// <summary>HTTP API for Plaid (link token, exchange, list/disconnect banks, transaction sync). Business logic: <see cref="IPlaidConnectionService"/>, <see cref="IPlaidTransactionSyncService"/>.</summary>
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
@@ -67,16 +66,17 @@ public sealed class PlaidController(
         return Ok(dto);
     }
 
-    [HttpDelete("connections/{linkedBankId:guid}")]
+    [HttpPost("connections/unlink")]
     [Produces("application/json")]
-    [ProducesResponseType(typeof(HardDeleteLinkedBankResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(UnlinkInstitutionResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<HardDeleteLinkedBankResponse>> HardDelete(
-        Guid linkedBankId,
+    public async Task<ActionResult<UnlinkInstitutionResponse>> UnlinkInstitution(
+        [FromBody] UnlinkInstitutionRequest request,
         CancellationToken cancellationToken)
     {
-        var dto = await plaidConnectionService.HardDeleteAsync(User, linkedBankId, cancellationToken).ConfigureAwait(false);
+        var dto = await plaidConnectionService.UnlinkInstitutionAsync(User, request, cancellationToken)
+            .ConfigureAwait(false);
         return Ok(dto);
     }
 

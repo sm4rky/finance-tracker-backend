@@ -22,6 +22,7 @@ public sealed class PlaidConnectionService(
     IPlaidLinkSessionRepository plaidLinkSessionRepository,
     ILinkedBankRepository linkedBankRepository,
     ILinkedBankAccountRepository linkedBankAccountRepository,
+    ITransactionRepository transactionRepository,
     PlaidAccessTokenProtector tokenProtector,
     IPlaidTransactionSyncService plaidTransactionSyncService,
     ILogger<PlaidConnectionService> logger) : IPlaidConnectionService
@@ -239,24 +240,7 @@ public sealed class PlaidConnectionService(
         if (bank is null)
             throw new ArgumentException("Linked bank was not found.");
 
-        if (!string.IsNullOrWhiteSpace(bank.PlaidAccessTokenEncrypted))
-        {
-            try
-            {
-                var accessToken = tokenProtector.Unprotect(bank.PlaidAccessTokenEncrypted);
-                var removeResponse = await plaidClient.ItemRemoveAsync(new ItemRemoveRequest { AccessToken = accessToken })
-                    .ConfigureAwait(false);
-                if (!removeResponse.IsSuccessStatusCode)
-                {
-                    var detail = removeResponse.Error?.ErrorMessage ?? removeResponse.Error?.ErrorCode ?? "unknown";
-                    logger.LogWarning("Plaid item/remove returned error during soft disconnect: {Detail}", detail);
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Plaid item/remove failed; continuing with local token removal.");
-            }
-        }
+        await TryRemovePlaidItemAsync(bank, cancellationToken).ConfigureAwait(false);
 
         var now = DateTimeOffset.UtcNow;
         bank.PlaidAccessTokenEncrypted = null;
@@ -274,18 +258,62 @@ public sealed class PlaidConnectionService(
         };
     }
 
-    public async Task<HardDeleteLinkedBankResponse> HardDeleteAsync(
+    public async Task<UnlinkInstitutionResponse> UnlinkInstitutionAsync(
         ClaimsPrincipal user,
-        Guid linkedBankId,
+        UnlinkInstitutionRequest request,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.LinkedBankId == Guid.Empty)
+            throw new ArgumentException("LinkedBankId is required.");
+
         var profileId = user.RequireProfileId();
+        var linkedBankId = request.LinkedBankId;
+
         var bank = await linkedBankRepository.GetByIdForProfileAsync(linkedBankId, profileId, cancellationToken).ConfigureAwait(false);
         if (bank is null)
             throw new ArgumentException("Linked bank was not found.");
 
+        await TryRemovePlaidItemAsync(bank, cancellationToken).ConfigureAwait(false);
+
+        var transactionsRemoved = 0;
+        if (request.DeleteTransactions)
+        {
+            transactionsRemoved = await transactionRepository
+                .DeleteByProfileAndLinkedBankIdAsync(profileId, linkedBankId, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         await linkedBankRepository.HardDeleteByIdForProfileAsync(linkedBankId, profileId, cancellationToken).ConfigureAwait(false);
-        return new HardDeleteLinkedBankResponse { LinkedBankId = linkedBankId, Deleted = true };
+
+        return new UnlinkInstitutionResponse
+        {
+            LinkedBankId = linkedBankId,
+            Deleted = true,
+            TransactionsRemoved = transactionsRemoved
+        };
+    }
+
+    private async Task TryRemovePlaidItemAsync(LinkedBank bank, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(bank.PlaidAccessTokenEncrypted))
+            return;
+
+        try
+        {
+            var accessToken = tokenProtector.Unprotect(bank.PlaidAccessTokenEncrypted);
+            var removeResponse = await plaidClient.ItemRemoveAsync(new ItemRemoveRequest { AccessToken = accessToken })
+                .ConfigureAwait(false);
+            if (!removeResponse.IsSuccessStatusCode)
+            {
+                var detail = removeResponse.Error?.ErrorMessage ?? removeResponse.Error?.ErrorCode ?? "unknown";
+                logger.LogWarning("Plaid item/remove error: {Detail}", detail);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Plaid item/remove failed; continuing.");
+        }
     }
 
     private async Task<LinkTokenCreateRequest> BuildLinkTokenCreateRequestAsync(

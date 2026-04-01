@@ -21,6 +21,11 @@ public interface ITransactionRepository
         DateTimeOffset removedAt,
         CancellationToken cancellationToken = default);
 
+    Task<int> DeleteByProfileAndLinkedBankIdAsync(
+        Guid profileId,
+        Guid linkedBankId,
+        CancellationToken cancellationToken = default);
+
     Task<long> CountAsync(
         Guid profileId,
         TransactionQueryFilters query,
