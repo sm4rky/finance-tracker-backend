@@ -17,23 +17,32 @@ public sealed class TransactionRepository(
         string plaidTransactionId,
         CancellationToken cancellationToken = default)
     {
-        var result = await supabaseClient.From<Transaction>()
+        var result = await supabaseClient
+            .From<Transaction>()
             .Where(t => t.ProfileId == profileId)
             .Where(t => t.PlaidTransactionId == plaidTransactionId)
             .Get(cancellationToken)
             .ConfigureAwait(false);
+
         return result.Models.Count > 0 ? result.Models[0] : null;
     }
 
-    public async Task InsertAsync(Transaction transaction, CancellationToken cancellationToken = default)
+    public async Task InsertAsync(
+        Transaction transaction,
+        CancellationToken cancellationToken = default)
     {
-        await supabaseClient.From<Transaction>().Insert(transaction, cancellationToken: cancellationToken)
+        await supabaseClient
+            .From<Transaction>()
+            .Insert(transaction, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
     }
 
-    public async Task UpdateAsync(Transaction transaction, CancellationToken cancellationToken = default)
+    public async Task UpdateAsync(
+        Transaction transaction,
+        CancellationToken cancellationToken = default)
     {
-        await supabaseClient.From<Transaction>()
+        await supabaseClient
+            .From<Transaction>()
             .Where(t => t.Id == transaction.Id)
             .Where(t => t.ProfileId == transaction.ProfileId)
             .Set(t => t.LinkedBankAccountId!, transaction.LinkedBankAccountId)
@@ -69,12 +78,14 @@ public sealed class TransactionRepository(
         DateTimeOffset removedAt,
         CancellationToken cancellationToken = default)
     {
-        var now = DateTimeOffset.UtcNow;
-        _ = await supabaseClient.From<Transaction>()
+        var updatedAt = DateTimeOffset.UtcNow;
+
+        _ = await supabaseClient
+            .From<Transaction>()
             .Where(t => t.ProfileId == profileId)
             .Where(t => t.PlaidTransactionId == plaidTransactionId)
             .Set(t => t.RemovedAt!, removedAt)
-            .Set(t => t.UpdatedAt, now)
+            .Set(t => t.UpdatedAt, updatedAt)
             .Update(null, cancellationToken)
             .ConfigureAwait(false);
     }
@@ -84,10 +95,7 @@ public sealed class TransactionRepository(
         Guid linkedBankId,
         CancellationToken cancellationToken = default)
     {
-        var cs = GetRequiredConnectionString();
-        await using var conn = new NpgsqlConnection(cs);
-        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await using var cmd = new NpgsqlCommand(
+        const string sql =
             """
             DELETE FROM transactions t
             WHERE t.profile_id = @profile_id
@@ -99,43 +107,44 @@ public sealed class TransactionRepository(
                     AND a.linked_bank_id = @linked_bank_id
                     AND b.profile_id = @profile_id
               )
-            """,
-            conn);
+            """;
+
+        await using var conn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+
         cmd.Parameters.AddWithValue("profile_id", profileId);
         cmd.Parameters.AddWithValue("linked_bank_id", linkedBankId);
-        var n = await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        return n;
+
+        return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<long> CountAsync(Guid profileId, TransactionQueryFilters query, CancellationToken cancellationToken = default)
+    public async Task<long> CountAsync(
+        Guid profileId,
+        TransactionQueryFilters query,
+        CancellationToken cancellationToken = default)
     {
-        ValidateFilterFields(query);
+        ValidateFilters(query);
 
-        var cs = GetRequiredConnectionString();
-
-        var where = new StringBuilder(
+        var sql = new StringBuilder(
             """
+            SELECT COUNT(*)::bigint
+            FROM transactions
             WHERE profile_id = @profile_id
               AND removed_at IS NULL
             """);
 
-        await using var conn = new NpgsqlConnection(cs);
-        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
-
+        await using var conn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = new NpgsqlCommand(null, conn);
+
         cmd.Parameters.AddWithValue("profile_id", profileId);
+        AppendFilters(cmd, sql, query);
 
-        AppendTransactionFilters(cmd, where, query);
-
-        cmd.CommandText = $"""
-                           SELECT COUNT(*)::bigint
-                           FROM transactions
-                           {where}
-                           """;
+        cmd.CommandText = sql.ToString();
 
         var scalar = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-        return scalar is long l
-            ? l
+
+        return scalar is long count
+            ? count
             : Convert.ToInt64(scalar, CultureInfo.InvariantCulture);
     }
 
@@ -146,55 +155,90 @@ public sealed class TransactionRepository(
     {
         ValidatePagedQuery(query);
 
-        var cs = GetRequiredConnectionString();
-        var orderBy = BuildOrderByClause(query.SortBy, query.Descending);
-
-        var where = new StringBuilder(
+        var sql = new StringBuilder(
             """
+            SELECT
+                id,
+                profile_id,
+                linked_bank_account_id,
+                plaid_transaction_id,
+                amount,
+                iso_currency_code,
+                date,
+                authorized_date,
+                authorized_datetime,
+                name,
+                merchant_name,
+                merchant_entity_id,
+                pending,
+                pending_transaction_id,
+                payment_channel,
+                transaction_type,
+                pfc_primary,
+                pfc_detailed,
+                pfc_confidence_level,
+                pfc_version,
+                logo_url,
+                website,
+                status,
+                removed_at,
+                created_at,
+                updated_at
+            FROM transactions
             WHERE profile_id = @profile_id
               AND removed_at IS NULL
             """);
 
-        await using var conn = new NpgsqlConnection(cs);
-        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
-
+        await using var conn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = new NpgsqlCommand(null, conn);
-        cmd.Parameters.AddWithValue("profile_id", profileId);
 
-        AppendTransactionFilters(cmd, where, query);
+        cmd.Parameters.AddWithValue("profile_id", profileId);
+        AppendFilters(cmd, sql, query);
+
+        sql.AppendLine();
+        sql.Append("ORDER BY ");
+        sql.Append(BuildOrderByClause(query.SortBy, query.Descending));
+        sql.AppendLine();
+        sql.Append("OFFSET @offset");
+        sql.AppendLine();
+        sql.Append("LIMIT @limit;");
+
         cmd.Parameters.AddWithValue("offset", query.Offset);
         cmd.Parameters.AddWithValue("limit", query.Limit);
+        cmd.CommandText = sql.ToString();
 
-        cmd.CommandText = $"""
-                           SELECT id, profile_id, linked_bank_account_id, plaid_transaction_id, amount, iso_currency_code,
-                                  date, authorized_date, authorized_datetime, name, merchant_name, merchant_entity_id,
-                                  pending, pending_transaction_id, payment_channel, transaction_type,
-                                  pfc_primary, pfc_detailed, pfc_confidence_level, pfc_version,
-                                  logo_url, website, status, removed_at, created_at, updated_at
-                           FROM transactions
-                           {where}
-                           ORDER BY {orderBy}
-                           OFFSET @offset
-                           LIMIT @limit;
-                           """;
-
-        var list = new List<Transaction>();
+        var transactions = new List<Transaction>();
 
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            list.Add(ReadTransactionRow(reader));
+        {
+            transactions.Add(MapTransaction(reader));
+        }
 
-        return list;
+        return transactions;
+    }
+
+    private async Task<NpgsqlConnection> OpenConnectionAsync(CancellationToken cancellationToken)
+    {
+        var connectionString = GetRequiredConnectionString();
+
+        var conn = new NpgsqlConnection(connectionString);
+        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+        return conn;
     }
 
     private string GetRequiredConnectionString()
     {
-        var cs = configuration.GetConnectionString("Default");
-        if (string.IsNullOrWhiteSpace(cs))
-            throw new InvalidOperationException(
-                "ConnectionStrings:Default is required for transaction list pagination.");
+        var connectionString = configuration.GetConnectionString("Default");
 
-        return cs;
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new InvalidOperationException(
+                "ConnectionStrings:Default is required for raw transaction queries.");
+        }
+
+        return connectionString;
     }
 
     private static void ValidatePagedQuery(TransactionQueryFilters query)
@@ -202,15 +246,19 @@ public sealed class TransactionRepository(
         ArgumentNullException.ThrowIfNull(query);
 
         if (query.Offset < 0)
+        {
             throw new ArgumentOutOfRangeException(nameof(query.Offset), "Offset must be >= 0.");
+        }
 
         if (query.Limit <= 0)
+        {
             throw new ArgumentOutOfRangeException(nameof(query.Limit), "Limit must be > 0.");
+        }
 
-        ValidateFilterFields(query);
+        ValidateFilters(query);
     }
 
-    private static void ValidateFilterFields(TransactionQueryFilters query)
+    private static void ValidateFilters(TransactionQueryFilters query)
     {
         ArgumentNullException.ThrowIfNull(query);
 
@@ -222,10 +270,14 @@ public sealed class TransactionRepository(
         }
 
         if (query.AbsAmountMin is < 0)
+        {
             throw new ArgumentException("AbsAmountMin must be non-negative.");
+        }
 
         if (query.AbsAmountMax is < 0)
+        {
             throw new ArgumentException("AbsAmountMax must be non-negative.");
+        }
 
         if (query.AbsAmountMin is { } min &&
             query.AbsAmountMax is { } max &&
@@ -235,79 +287,145 @@ public sealed class TransactionRepository(
         }
     }
 
-    private static void AppendTransactionFilters(
+    private static void AppendFilters(
         NpgsqlCommand cmd,
-        StringBuilder where,
+        StringBuilder sql,
         TransactionQueryFilters filters)
     {
-        if (filters.AccountIds.Count > 0)
+        AppendAccountFilter(cmd, sql, filters);
+        AppendPfcPrimaryFilter(cmd, sql, filters);
+        AppendPaymentChannelFilter(cmd, sql, filters);
+        AppendPendingFilter(cmd, sql, filters);
+        AppendDateRangeFilter(cmd, sql, filters);
+        AppendAmountFilter(cmd, sql, filters);
+        AppendAmountFlowFilter(sql, filters);
+    }
+
+    private static void AppendAccountFilter(
+        NpgsqlCommand cmd,
+        StringBuilder sql,
+        TransactionQueryFilters filters)
+    {
+        var accountIds = filters.AccountIds
+            .Distinct()
+            .ToArray();
+
+        if (!filters.IncludeUnlinkedTransactions)
         {
-            where.Append(" AND linked_bank_account_id = ANY(@filter_account_ids)");
-            cmd.Parameters.Add(new NpgsqlParameter("filter_account_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid)
+            if (accountIds.Length == 0)
             {
-                Value = filters.AccountIds.Distinct().ToArray()
-            });
-        }
-
-        var hasPfc = filters.PfcPrimaryList.Count > 0;
-        var hasUncategorized = filters.IncludePfcUncategorized;
-
-        if (hasPfc || hasUncategorized)
-        {
-            where.Append(" AND (");
-
-            switch (hasPfc)
-            {
-                case true when hasUncategorized:
-                    where.Append("lower(coalesce(pfc_primary, '')) = ANY(@filter_pfc_primary_list) OR ");
-                    AppendPfcUncategorizedPredicate(where);
-                    break;
-                case true:
-                    where.Append("lower(coalesce(pfc_primary, '')) = ANY(@filter_pfc_primary_list)");
-                    break;
-                default:
-                    AppendPfcUncategorizedPredicate(where);
-                    break;
+                sql.Append(" AND FALSE");
+                return;
             }
 
-            where.Append(')');
+            sql.Append(" AND linked_bank_account_id IS NOT NULL");
+            sql.Append(" AND status <> 'account_opted_out'");
+            sql.Append(" AND linked_bank_account_id = ANY(@filter_account_ids)");
 
-            if (hasPfc)
-            {
-                var pfcLower = filters.PfcPrimaryList
-                    .Distinct(StringComparer.Ordinal)
-                    .Select(s => s.ToLowerInvariant())
-                    .ToArray();
-                cmd.Parameters.Add(
-                    new NpgsqlParameter("filter_pfc_primary_list", NpgsqlDbType.Array | NpgsqlDbType.Text)
-                    {
-                        Value = pfcLower
-                    });
-            }
+            AddUuidArrayParameter(cmd, "filter_account_ids", accountIds);
+            return;
         }
 
-        if (filters.PaymentChannels.Count > 0)
+        if (accountIds.Length == 0)
         {
-            where.Append(" AND lower(coalesce(payment_channel, '')) = ANY(@filter_payment_channels)");
-            var channelsLower = filters.PaymentChannels
+            sql.Append(" AND (linked_bank_account_id IS NULL OR status = 'account_opted_out')");
+            return;
+        }
+
+        sql.Append(
+            """
+             AND (
+                linked_bank_account_id IS NULL
+                OR status = 'account_opted_out'
+                OR linked_bank_account_id = ANY(@filter_account_ids)
+            )
+            """);
+
+        AddUuidArrayParameter(cmd, "filter_account_ids", accountIds);
+    }
+
+    private static void AppendPfcPrimaryFilter(
+        NpgsqlCommand cmd,
+        StringBuilder sql,
+        TransactionQueryFilters filters)
+    {
+        var hasPfcPrimaryList = filters.PfcPrimaryList.Count > 0;
+        var includeUncategorized = filters.IncludePfcUncategorized;
+
+        if (!hasPfcPrimaryList && !includeUncategorized)
+        {
+            return;
+        }
+
+        sql.Append(" AND (");
+
+        if (hasPfcPrimaryList)
+        {
+            sql.Append("lower(coalesce(pfc_primary, '')) = ANY(@filter_pfc_primary_list)");
+
+            var normalizedPfcCodes = filters.PfcPrimaryList
                 .Distinct(StringComparer.Ordinal)
-                .Select(s => s.ToLowerInvariant())
+                .Select(value => value.ToLowerInvariant())
                 .ToArray();
-            cmd.Parameters.Add(new NpgsqlParameter("filter_payment_channels", NpgsqlDbType.Array | NpgsqlDbType.Text)
-            {
-                Value = channelsLower
-            });
+
+            AddTextArrayParameter(cmd, "filter_pfc_primary_list", normalizedPfcCodes);
         }
 
-        if (filters.Pending is { } pending)
+        if (hasPfcPrimaryList && includeUncategorized)
         {
-            where.Append(" AND pending = @filter_pending");
-            cmd.Parameters.AddWithValue("filter_pending", pending);
+            sql.Append(" OR ");
         }
 
+        if (includeUncategorized)
+        {
+            sql.Append("pfc_primary IS NULL");
+        }
+
+        sql.Append(')');
+    }
+
+    private static void AppendPaymentChannelFilter(
+        NpgsqlCommand cmd,
+        StringBuilder sql,
+        TransactionQueryFilters filters)
+    {
+        if (filters.PaymentChannels.Count == 0)
+        {
+            return;
+        }
+
+        sql.Append(" AND lower(coalesce(payment_channel, '')) = ANY(@filter_payment_channels)");
+
+        var normalizedChannels = filters.PaymentChannels
+            .Distinct(StringComparer.Ordinal)
+            .Select(value => value.ToLowerInvariant())
+            .ToArray();
+
+        AddTextArrayParameter(cmd, "filter_payment_channels", normalizedChannels);
+    }
+
+    private static void AppendPendingFilter(
+        NpgsqlCommand cmd,
+        StringBuilder sql,
+        TransactionQueryFilters filters)
+    {
+        if (filters.Pending is not { } pending)
+        {
+            return;
+        }
+
+        sql.Append(" AND pending = @filter_pending");
+        cmd.Parameters.AddWithValue("filter_pending", pending);
+    }
+
+    private static void AppendDateRangeFilter(
+        NpgsqlCommand cmd,
+        StringBuilder sql,
+        TransactionQueryFilters filters)
+    {
         if (filters.DateFromInclusive is { } dateFrom)
         {
-            where.Append(" AND date >= @filter_date_from");
+            sql.Append(" AND date >= @filter_date_from");
             cmd.Parameters.Add(new NpgsqlParameter("filter_date_from", NpgsqlDbType.Date)
             {
                 Value = dateFrom
@@ -316,60 +434,93 @@ public sealed class TransactionRepository(
 
         if (filters.DateToInclusive is { } dateTo)
         {
-            where.Append(" AND date <= @filter_date_to");
+            sql.Append(" AND date <= @filter_date_to");
             cmd.Parameters.Add(new NpgsqlParameter("filter_date_to", NpgsqlDbType.Date)
             {
                 Value = dateTo
             });
         }
+    }
 
-        if (filters.AbsAmountMin is { } absAmountMin)
+    private static void AppendAmountFilter(
+        NpgsqlCommand cmd,
+        StringBuilder sql,
+        TransactionQueryFilters filters)
+    {
+        if (filters.AbsAmountMin is { } minAmount)
         {
-            where.Append(" AND abs(amount) >= @filter_abs_amount_min");
-            cmd.Parameters.AddWithValue("filter_abs_amount_min", absAmountMin);
+            sql.Append(" AND abs(amount) >= @filter_abs_amount_min");
+            cmd.Parameters.AddWithValue("filter_abs_amount_min", minAmount);
         }
 
-        if (filters.AbsAmountMax is { } absAmountMax)
+        if (filters.AbsAmountMax is { } maxAmount)
         {
-            where.Append(" AND abs(amount) <= @filter_abs_amount_max");
-            cmd.Parameters.AddWithValue("filter_abs_amount_max", absAmountMax);
+            sql.Append(" AND abs(amount) <= @filter_abs_amount_max");
+            cmd.Parameters.AddWithValue("filter_abs_amount_max", maxAmount);
+        }
+    }
+
+    private static void AppendAmountFlowFilter(
+        StringBuilder sql,
+        TransactionQueryFilters filters)
+    {
+        if (filters.AmountFlow is not { } flow)
+        {
+            return;
         }
 
-        if (filters.AmountFlow is { } flow)
-        {
-            where.Append(flow == TransactionFlow.Income
+        sql.Append(
+            flow == TransactionFlow.Income
                 ? " AND amount < 0"
                 : " AND amount > 0");
-        }
     }
 
-    private static void AppendPfcUncategorizedPredicate(StringBuilder where)
+    private static void AddUuidArrayParameter(
+        NpgsqlCommand cmd,
+        string name,
+        Guid[] values)
     {
-        where.Append("pfc_primary IS NULL");
+        cmd.Parameters.Add(new NpgsqlParameter(name, NpgsqlDbType.Array | NpgsqlDbType.Uuid)
+        {
+            Value = values
+        });
     }
-    
-    private static string BuildOrderByClause(TransactionSortField sortBy, bool descending)
+
+    private static void AddTextArrayParameter(
+        NpgsqlCommand cmd,
+        string name,
+        string[] values)
+    {
+        cmd.Parameters.Add(new NpgsqlParameter(name, NpgsqlDbType.Array | NpgsqlDbType.Text)
+        {
+            Value = values
+        });
+    }
+
+    private static string BuildOrderByClause(
+        TransactionSortField sortBy,
+        bool descending)
     {
         var direction = descending ? "DESC" : "ASC";
-        var idDirection = descending ? "DESC" : "ASC";
-        const string nullsLast = "NULLS LAST";
-        var primary = sortBy switch
+        const string NullsLast = "NULLS LAST";
+
+        var primaryOrder = sortBy switch
         {
             TransactionSortField.Date => $"date {direction}",
-            TransactionSortField.MerchantName => $"COALESCE(merchant_name, name) {direction} {nullsLast}",
-            TransactionSortField.LinkedBankAccountId => $"linked_bank_account_id {direction} {nullsLast}",
-            TransactionSortField.PfcPrimary => $"pfc_primary {direction} {nullsLast}",
-            TransactionSortField.PfcDetailed => $"pfc_detailed {direction} {nullsLast}",
+            TransactionSortField.MerchantName => $"COALESCE(merchant_name, name) {direction} {NullsLast}",
+            TransactionSortField.LinkedBankAccountId => $"linked_bank_account_id {direction} {NullsLast}",
+            TransactionSortField.PfcPrimary => $"pfc_primary {direction} {NullsLast}",
+            TransactionSortField.PfcDetailed => $"pfc_detailed {direction} {NullsLast}",
             TransactionSortField.Amount => $"amount {direction}",
-            TransactionSortField.PaymentChannel => $"payment_channel {direction} {nullsLast}",
+            TransactionSortField.PaymentChannel => $"payment_channel {direction} {NullsLast}",
             TransactionSortField.Pending => $"pending {direction}",
             _ => throw new ArgumentOutOfRangeException(nameof(sortBy), sortBy, null)
         };
 
-        return $"{primary}, id {idDirection}";
+        return $"{primaryOrder}, id {direction}";
     }
 
-    private static Transaction ReadTransactionRow(NpgsqlDataReader reader) => new()
+    private static Transaction MapTransaction(NpgsqlDataReader reader) => new()
     {
         Id = reader.GetGuid(0),
         ProfileId = reader.GetGuid(1),

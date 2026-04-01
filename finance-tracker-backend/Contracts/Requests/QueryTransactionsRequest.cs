@@ -9,6 +9,7 @@ public sealed class QueryTransactionsRequest
     public string? SortBy { get; set; }
     public string? SortDirection { get; set; }
     public List<Guid>? AccountIds { get; set; }
+    public bool? IncludeUnlinkedTransactions { get; set; }
     public List<string>? PfcPrimaryList { get; set; }
     public List<string>? PaymentChannels { get; set; }
     public bool? Pending { get; set; }

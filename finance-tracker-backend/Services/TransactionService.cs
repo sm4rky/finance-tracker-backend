@@ -166,6 +166,7 @@ public sealed class TransactionService(ITransactionRepository transactionReposit
             SortBy = sortBy,
             Descending = descending,
             AccountIds = accountIds,
+            IncludeUnlinkedTransactions = request.IncludeUnlinkedTransactions ?? true,
             PfcPrimaryList = distinctPfcPrimaryList,
             IncludePfcUncategorized = includePfcUncategorized,
             PaymentChannels = paymentChannels,

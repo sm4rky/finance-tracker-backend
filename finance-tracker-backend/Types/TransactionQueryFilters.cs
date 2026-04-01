@@ -7,6 +7,7 @@ public sealed record TransactionQueryFilters
     public TransactionSortField SortBy { get; init; } = TransactionSortField.Date;
     public bool Descending { get; init; } = true;
     public IReadOnlyList<Guid> AccountIds { get; init; } = [];
+    public bool IncludeUnlinkedTransactions { get; init; } = true;
     public IReadOnlyList<string> PfcPrimaryList { get; init; } = [];
     public bool IncludePfcUncategorized { get; init; }
     public IReadOnlyList<string> PaymentChannels { get; init; } = [];
