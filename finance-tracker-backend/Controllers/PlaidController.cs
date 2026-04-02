@@ -42,6 +42,23 @@ public sealed class PlaidController(
         return Ok(dto);
     }
 
+    [HttpPost("connections/{linkedBankId:guid}/confirm-update-accounts")]
+    [Produces("application/json")]
+    [ProducesResponseType(typeof(ConfirmPlaidUpdateAccountsResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<ConfirmPlaidUpdateAccountsResponse>> ConfirmUpdateAccounts(
+        Guid linkedBankId,
+        [FromBody] ConfirmPlaidUpdateAccountsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var dto = await plaidConnectionService
+            .ConfirmUpdateModeAccountDecisionsAsync(User, linkedBankId, request, cancellationToken)
+            .ConfigureAwait(false);
+        return Ok(dto);
+    }
+
     [HttpGet("connections")]
     [Produces("application/json")]
     [ProducesResponseType(typeof(IReadOnlyList<LinkedBankSummaryResponse>), StatusCodes.Status200OK)]

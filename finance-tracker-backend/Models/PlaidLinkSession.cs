@@ -18,6 +18,9 @@ public class PlaidLinkSession : BaseModel
     [Column("expires_at")]
     public DateTimeOffset ExpiresAt { get; set; }
 
+    [Column("intent")]
+    public string Intent { get; set; } = "connect";
+
     [Column("created_at")]
     public DateTimeOffset CreatedAt { get; set; }
 }

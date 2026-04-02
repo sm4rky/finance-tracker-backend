@@ -29,4 +29,10 @@ public interface IPlaidConnectionService
         ClaimsPrincipal user,
         UnlinkInstitutionRequest request,
         CancellationToken cancellationToken = default);
+
+    Task<ConfirmPlaidUpdateAccountsResponse> ConfirmUpdateModeAccountDecisionsAsync(
+        ClaimsPrincipal user,
+        Guid linkedBankId,
+        ConfirmPlaidUpdateAccountsRequest request,
+        CancellationToken cancellationToken = default);
 }

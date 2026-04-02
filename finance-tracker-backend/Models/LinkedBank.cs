@@ -39,6 +39,9 @@ public class LinkedBank : BaseModel
     [Column("plaid_transactions_cursor")]
     public string? PlaidTransactionsCursor { get; set; }
 
+    [Column("pending_deselected_plaid_account_ids")]
+    public string? PendingDeselectedPlaidAccountIds { get; set; }
+
     [Column("created_at")]
     public DateTimeOffset CreatedAt { get; set; }
 

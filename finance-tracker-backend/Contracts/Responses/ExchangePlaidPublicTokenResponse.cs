@@ -7,4 +7,6 @@ public sealed class ExchangePlaidPublicTokenResponse
     public string? InstitutionId { get; init; }
     public string? InstitutionName { get; init; }
     public IReadOnlyList<LinkedBankAccountResponse> Accounts { get; init; } = [];
+    public bool RequiresAccountOptOutHandling { get; init; }
+    public IReadOnlyList<LinkedBankAccountResponse> PendingDeselectedAccounts { get; init; } = [];
 }

@@ -13,4 +13,9 @@ public interface ILinkedBankAccountRepository
     Task<IReadOnlyList<LinkedBankAccount>> ListByLinkedBankIdsAsync(IReadOnlyCollection<Guid> linkedBankIds, CancellationToken cancellationToken = default);
     Task InsertAsync(LinkedBankAccount account, CancellationToken cancellationToken = default);
     Task UpdateAsync(LinkedBankAccount account, CancellationToken cancellationToken = default);
+
+    Task DeleteByIdAndLinkedBankIdAsync(
+        Guid accountId,
+        Guid linkedBankId,
+        CancellationToken cancellationToken = default);
 }

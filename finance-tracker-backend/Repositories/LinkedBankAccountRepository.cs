@@ -59,20 +59,32 @@ public sealed class LinkedBankAccountRepository(Supabase.Client supabaseClient) 
         await supabaseClient.From<LinkedBankAccount>()
             .Where(a => a.Id == account.Id)
             .Set(a => a.PlaidAccountId, account.PlaidAccountId)
-            .Set(a => a.AccountName ?? string.Empty, account.AccountName)
-            .Set(a => a.OfficialName ?? string.Empty, account.OfficialName)
-            .Set(a => a.Mask ?? string.Empty, account.Mask)
-            .Set(a => a.Type ?? string.Empty, account.Type)
-            .Set(a => a.Subtype ?? string.Empty, account.Subtype)
-            .Set(a => a.CurrentBalance ?? 0, account.CurrentBalance)
-            .Set(a => a.AvailableBalance ?? 0, account.AvailableBalance)
-            .Set(a => a.LimitAmount ?? 0, account.LimitAmount)
-            .Set(a => a.IsoCurrencyCode ?? string.Empty, account.IsoCurrencyCode)
-            .Set(a => a.UnofficialCurrencyCode ?? string.Empty, account.UnofficialCurrencyCode)
+            .Set(a => a.AccountName!, account.AccountName)
+            .Set(a => a.OfficialName!, account.OfficialName)
+            .Set(a => a.Mask!, account.Mask)
+            .Set(a => a.Type!, account.Type)
+            .Set(a => a.Subtype!, account.Subtype)
+            .Set(a => a.CurrentBalance!, account.CurrentBalance)
+            .Set(a => a.AvailableBalance!, account.AvailableBalance)
+            .Set(a => a.LimitAmount!, account.LimitAmount)
+            .Set(a => a.IsoCurrencyCode!, account.IsoCurrencyCode)
+            .Set(a => a.UnofficialCurrencyCode!, account.UnofficialCurrencyCode)
             .Set(a => a.BalanceLastFetchedAt!, account.BalanceLastFetchedAt)
             .Set(a => a.IsActive, account.IsActive)
             .Set(a => a.UpdatedAt, account.UpdatedAt)
             .Update(null, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task DeleteByIdAndLinkedBankIdAsync(
+        Guid accountId,
+        Guid linkedBankId,
+        CancellationToken cancellationToken = default)
+    {
+        await supabaseClient.From<LinkedBankAccount>()
+            .Where(a => a.Id == accountId)
+            .Where(a => a.LinkedBankId == linkedBankId)
+            .Delete(null, cancellationToken)
             .ConfigureAwait(false);
     }
 }

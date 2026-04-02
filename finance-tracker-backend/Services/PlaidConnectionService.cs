@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Security.Claims;
+using System.Text.Json;
 using finance_tracker_backend.Infrastructure;
 using finance_tracker_backend.Contracts.Requests;
 using finance_tracker_backend.Contracts.Responses;
@@ -33,6 +34,8 @@ public sealed class PlaidConnectionService(
     private static readonly CountryCode[] DefaultCountries = [CountryCode.Us];
 
     private const int MaxPlaidTransactionHistoryDaysRequested = 730;
+
+    private const string TransactionStatusAccountOptedOut = "account_opted_out";
 
     public async Task<CreatePlaidLinkTokenResponse> CreateLinkTokenAsync(
         ClaimsPrincipal user,
@@ -79,7 +82,7 @@ public sealed class PlaidConnectionService(
         var plaidExp = linkResponse.Expiration == default ? (DateTime?)null : linkResponse.Expiration.UtcDateTime;
         var expiresAt = ResolveLinkTokenExpiration(plaidExp, _plaid, intent);
 
-        var sessionId = await SaveLinkSessionAsync(profileId, linkResponse.LinkToken, expiresAt, existingSession, cancellationToken)
+        var sessionId = await SaveLinkSessionAsync(profileId, linkResponse.LinkToken, expiresAt, existingSession, intent, cancellationToken)
             .ConfigureAwait(false);
 
         return new CreatePlaidLinkTokenResponse { LinkToken = linkResponse.LinkToken, LinkSessionId = sessionId };
@@ -168,8 +171,39 @@ public sealed class PlaidConnectionService(
             await linkedBankRepository.InsertAsync(bank, cancellationToken).ConfigureAwait(false);
         }
 
-        var accountDtos = await SyncAccountsFromPlaidAsync(bank.Id, accountsResponse.Accounts.ToList(), now, cancellationToken)
+        var sessionIntent = string.IsNullOrWhiteSpace(session.Intent) ? "connect" : session.Intent.Trim();
+        var isUpdateIntent = string.Equals(sessionIntent, "update", StringComparison.OrdinalIgnoreCase);
+
+        var accountDtos = await SyncAccountsFromPlaidAsync(
+                bank.Id,
+                accountsResponse.Accounts.ToList(),
+                now,
+                deferDeactivationForMissingPlaidAccounts: isUpdateIntent,
+                cancellationToken)
             .ConfigureAwait(false);
+
+        IReadOnlyList<LinkedBankAccountResponse> pendingDeselectedDtos = [];
+        var requiresAccountOptOutHandling = false;
+
+        if (!isUpdateIntent)
+            bank.PendingDeselectedPlaidAccountIds = null;
+        else
+        {
+            var plaidIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var a in accountsResponse.Accounts)
+            {
+                if (!string.IsNullOrWhiteSpace(a.AccountId))
+                    plaidIds.Add(a.AccountId);
+            }
+
+            var allDb = await linkedBankAccountRepository.ListByLinkedBankIdAsync(bank.Id, cancellationToken).ConfigureAwait(false);
+            var deselectedRows = allDb.Where(x => x.IsActive && !plaidIds.Contains(x.PlaidAccountId)).ToList();
+            requiresAccountOptOutHandling = deselectedRows.Count > 0;
+            bank.PendingDeselectedPlaidAccountIds = deselectedRows.Count == 0
+                ? null
+                : JsonSerializer.Serialize(deselectedRows.Select(x => x.PlaidAccountId).ToList());
+            pendingDeselectedDtos = deselectedRows.Select(MapAccount).ToList();
+        }
 
         // LastSyncedAt is only for transaction-sync cooldown (set by PlaidTransactionSyncService). Clear it here so
         // post-exchange sync always runs (including banks that had LastSyncedAt set incorrectly on a previous version).
@@ -200,8 +234,100 @@ public sealed class PlaidConnectionService(
             PlaidItemId = bank.PlaidItemId,
             InstitutionId = bank.InstitutionId,
             InstitutionName = bank.InstitutionName,
-            Accounts = accountDtos
+            Accounts = accountDtos,
+            RequiresAccountOptOutHandling = requiresAccountOptOutHandling,
+            PendingDeselectedAccounts = pendingDeselectedDtos
         };
+    }
+
+    public async Task<ConfirmPlaidUpdateAccountsResponse> ConfirmUpdateModeAccountDecisionsAsync(
+        ClaimsPrincipal user,
+        Guid linkedBankId,
+        ConfirmPlaidUpdateAccountsRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var profileId = user.RequireProfileId();
+
+        var bank = await linkedBankRepository.GetByIdForProfileAsync(linkedBankId, profileId, cancellationToken).ConfigureAwait(false);
+        if (bank is null)
+            throw new ArgumentException("Linked bank was not found.");
+
+        if (string.IsNullOrWhiteSpace(bank.PendingDeselectedPlaidAccountIds))
+            throw new ArgumentException("There is no pending account opt-out to confirm for this connection.");
+
+        List<string> pendingIds;
+        try
+        {
+            pendingIds = JsonSerializer.Deserialize<List<string>>(bank.PendingDeselectedPlaidAccountIds!) ?? [];
+        }
+        catch (JsonException ex)
+        {
+            throw new ArgumentException("Invalid pending state on linked bank.", ex);
+        }
+
+        if (pendingIds.Count == 0)
+            throw new ArgumentException("There is no pending account opt-out to confirm for this connection.");
+
+        var decisions = request.Decisions ?? [];
+        var pendingSet = new HashSet<string>(pendingIds, StringComparer.Ordinal);
+        var map = new Dictionary<string, PlaidAccountOptOutDecision>(StringComparer.Ordinal);
+
+        foreach (var d in decisions)
+        {
+            var pid = d.PlaidAccountId?.Trim() ?? string.Empty;
+            if (string.IsNullOrEmpty(pid))
+                throw new ArgumentException("Each decision must include a PlaidAccountId.");
+            if (!pendingSet.Contains(pid))
+                throw new ArgumentException($"Plaid account id is not pending opt-out: {pid}.");
+            if (!map.TryAdd(pid, d))
+                throw new ArgumentException($"Duplicate Plaid account id in decisions: {pid}.");
+        }
+
+        if (map.Count != pendingSet.Count)
+            throw new ArgumentException($"Provide exactly one decision per pending account ({pendingSet.Count} required).");
+
+        var now = DateTimeOffset.UtcNow;
+
+        foreach (var pid in pendingIds)
+        {
+            var d = map[pid];
+
+            var acc = await linkedBankAccountRepository
+                .GetByLinkedBankAndPlaidAccountIdAsync(linkedBankId, pid, cancellationToken)
+                .ConfigureAwait(false);
+            if (acc is null)
+                throw new ArgumentException($"Account {pid} is no longer linked to this bank.");
+
+            if (d.DeleteTransactions)
+            {
+                await transactionRepository
+                    .DeleteByProfileAndLinkedBankAccountIdAsync(profileId, acc.Id, cancellationToken)
+                    .ConfigureAwait(false);
+                await linkedBankAccountRepository
+                    .DeleteByIdAndLinkedBankIdAsync(acc.Id, linkedBankId, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                await transactionRepository
+                    .SetStatusByLinkedBankAccountIdAsync(profileId, acc.Id, TransactionStatusAccountOptedOut, cancellationToken)
+                    .ConfigureAwait(false);
+                acc.IsActive = false;
+                acc.UpdatedAt = now;
+                await linkedBankAccountRepository.UpdateAsync(acc, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        bank.PendingDeselectedPlaidAccountIds = null;
+        bank.UpdatedAt = now;
+        await linkedBankRepository.UpdateAsync(bank, cancellationToken).ConfigureAwait(false);
+
+        var sync = await plaidTransactionSyncService
+            .SyncLinkedBankAsync(user, linkedBankId, cancellationToken, bypassCooldown: true)
+            .ConfigureAwait(false);
+
+        return new ConfirmPlaidUpdateAccountsResponse { LinkedBankId = linkedBankId, Sync = sync };
     }
 
     public async Task<IReadOnlyList<LinkedBankSummaryResponse>> ListConnectionsAsync(
@@ -213,7 +339,10 @@ public sealed class PlaidConnectionService(
         var ordered = banks.OrderBy(b => b.CreatedAt).ToList();
         var ids = ordered.Select(b => b.Id).ToList();
         var accounts = await linkedBankAccountRepository.ListByLinkedBankIdsAsync(ids, cancellationToken).ConfigureAwait(false);
-        var byBank = accounts.GroupBy(a => a.LinkedBankId).ToDictionary(g => g.Key, g => g.OrderBy(a => a.CreatedAt).Select(MapAccount).ToList());
+        var activeAccounts = accounts.Where(a => a.IsActive).ToList();
+        var byBank = activeAccounts
+            .GroupBy(a => a.LinkedBankId)
+            .ToDictionary(g => g.Key, g => g.OrderBy(a => a.CreatedAt).Select(MapAccount).ToList());
 
         return ordered.Select(b => new LinkedBankSummaryResponse
         {
@@ -226,6 +355,7 @@ public sealed class PlaidConnectionService(
             TokenRemovedAt = b.TokenRemovedAt,
             LastSyncedAt = b.LastSyncedAt,
             CreatedAt = b.CreatedAt,
+            HasPendingUpdateAccountDecisions = !string.IsNullOrWhiteSpace(b.PendingDeselectedPlaidAccountIds),
             Accounts = byBank.GetValueOrDefault(b.Id) ?? []
         }).ToList();
     }
@@ -389,12 +519,13 @@ public sealed class PlaidConnectionService(
         string linkToken,
         DateTime expiresAt,
         PlaidLinkSession? existingRow,
+        string intent,
         CancellationToken cancellationToken)
     {
         if (existingRow is not null)
         {
             await plaidLinkSessionRepository.UpdateTokensAsync(
-                    existingRow.Id, profileId, linkToken, LinkSessionExpiresAtToOffset(expiresAt), cancellationToken)
+                    existingRow.Id, profileId, linkToken, LinkSessionExpiresAtToOffset(expiresAt), intent, cancellationToken)
                 .ConfigureAwait(false);
             return existingRow.Id;
         }
@@ -405,6 +536,7 @@ public sealed class PlaidConnectionService(
             ProfileId = profileId,
             LinkToken = linkToken,
             ExpiresAt = LinkSessionExpiresAtToOffset(expiresAt),
+            Intent = intent,
             CreatedAt = DateTimeOffset.UtcNow
         };
 
@@ -421,7 +553,7 @@ public sealed class PlaidConnectionService(
                 throw;
 
             await plaidLinkSessionRepository.UpdateTokensAsync(
-                    raced.Id, profileId, linkToken, LinkSessionExpiresAtToOffset(expiresAt), cancellationToken)
+                    raced.Id, profileId, linkToken, LinkSessionExpiresAtToOffset(expiresAt), intent, cancellationToken)
                 .ConfigureAwait(false);
             return raced.Id;
         }
@@ -431,6 +563,7 @@ public sealed class PlaidConnectionService(
         Guid linkedBankId,
         IList<Account> plaidAccounts,
         DateTimeOffset now,
+        bool deferDeactivationForMissingPlaidAccounts,
         CancellationToken cancellationToken)
     {
         var existing = (await linkedBankAccountRepository.ListByLinkedBankIdAsync(linkedBankId, cancellationToken).ConfigureAwait(false))
@@ -447,7 +580,7 @@ public sealed class PlaidConnectionService(
             seen.Add(pid);
 
             var type = acc.Type.ToString();
-            var subtype = acc.Subtype.ToString();
+            var subtype = acc.Subtype?.ToString() ?? string.Empty;
 
             if (existing.TryGetValue(pid, out var row))
             {
@@ -464,31 +597,55 @@ public sealed class PlaidConnectionService(
             }
             else
             {
-                var insert = new LinkedBankAccount
+                var mergeInto = FindInactiveAccountMergeCandidate(existing, acc, type, subtype);
+                if (mergeInto is not null)
                 {
-                    Id = Guid.NewGuid(),
-                    LinkedBankId = linkedBankId,
-                    PlaidAccountId = pid,
-                    AccountName = acc.Name,
-                    OfficialName = acc.OfficialName,
-                    Mask = acc.Mask,
-                    Type = type,
-                    Subtype = subtype,
-                    IsActive = true,
-                    CreatedAt = now,
-                    UpdatedAt = now
-                };
-                ApplyPlaidBalances(insert, acc.Balances, now);
-                await linkedBankAccountRepository.InsertAsync(insert, cancellationToken).ConfigureAwait(false);
-                dtos.Add(MapAccount(insert));
+                    var oldPlaidId = mergeInto.PlaidAccountId;
+                    existing.Remove(oldPlaidId);
+                    mergeInto.PlaidAccountId = pid;
+                    mergeInto.AccountName = acc.Name;
+                    mergeInto.OfficialName = acc.OfficialName;
+                    mergeInto.Mask = acc.Mask;
+                    mergeInto.Type = type;
+                    mergeInto.Subtype = subtype;
+                    mergeInto.IsActive = true;
+                    ApplyPlaidBalances(mergeInto, acc.Balances, now);
+                    mergeInto.UpdatedAt = now;
+                    await linkedBankAccountRepository.UpdateAsync(mergeInto, cancellationToken).ConfigureAwait(false);
+                    existing[pid] = mergeInto;
+                    dtos.Add(MapAccount(mergeInto));
+                }
+                else
+                {
+                    var insert = new LinkedBankAccount
+                    {
+                        Id = Guid.NewGuid(),
+                        LinkedBankId = linkedBankId,
+                        PlaidAccountId = pid,
+                        AccountName = acc.Name,
+                        OfficialName = acc.OfficialName,
+                        Mask = acc.Mask,
+                        Type = type,
+                        Subtype = subtype,
+                        IsActive = true,
+                        CreatedAt = now,
+                        UpdatedAt = now
+                    };
+                    ApplyPlaidBalances(insert, acc.Balances, now);
+                    await linkedBankAccountRepository.InsertAsync(insert, cancellationToken).ConfigureAwait(false);
+                    dtos.Add(MapAccount(insert));
+                }
             }
         }
 
-        foreach (var row in from kv in existing where !seen.Contains(kv.Key) select kv.Value)
+        if (!deferDeactivationForMissingPlaidAccounts)
         {
-            row.IsActive = false;
-            row.UpdatedAt = now;
-            await linkedBankAccountRepository.UpdateAsync(row, cancellationToken).ConfigureAwait(false);
+            foreach (var row in from kv in existing where !seen.Contains(kv.Key) select kv.Value)
+            {
+                row.IsActive = false;
+                row.UpdatedAt = now;
+                await linkedBankAccountRepository.UpdateAsync(row, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         return dtos;
@@ -535,6 +692,55 @@ public sealed class PlaidConnectionService(
         BalanceLastFetchedAt = a.BalanceLastFetchedAt,
         IsActive = a.IsActive
     };
+
+    private static LinkedBankAccount? FindInactiveAccountMergeCandidate(
+        Dictionary<string, LinkedBankAccount> existing,
+        Account acc,
+        string type,
+        string subtype)
+    {
+        var label = NormalizePlaidAccountLabel(acc.Name, acc.OfficialName);
+        var maskNorm = NormalizeMask(acc.Mask);
+
+        LinkedBankAccount? sole = null;
+        foreach (var row in existing.Values)
+        {
+            if (row.IsActive)
+                continue;
+            if (!string.Equals(row.Type, type, StringComparison.Ordinal))
+                continue;
+            if (!string.Equals(row.Subtype, subtype, StringComparison.Ordinal))
+                continue;
+            if (!MaskMatches(maskNorm, row.Mask))
+                continue;
+            var rowLabel = NormalizePlaidAccountLabel(row.AccountName, row.OfficialName);
+            if (!string.Equals(rowLabel, label, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (sole is not null)
+                return null;
+            sole = row;
+        }
+
+        return sole;
+    }
+
+    private static string NormalizePlaidAccountLabel(string? name, string? officialName)
+    {
+        var s = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+        if (!string.IsNullOrEmpty(s))
+            return s;
+        s = string.IsNullOrWhiteSpace(officialName) ? null : officialName.Trim();
+        return s ?? string.Empty;
+    }
+
+    private static string? NormalizeMask(string? mask) =>
+        string.IsNullOrWhiteSpace(mask) ? null : mask.Trim();
+
+    private static bool MaskMatches(string? plaidMaskNormalized, string? rowMask)
+    {
+        var r = NormalizeMask(rowMask);
+        return string.Equals(plaidMaskNormalized ?? string.Empty, r ?? string.Empty, StringComparison.Ordinal);
+    }
 
     private static bool IsUniqueConstraintViolation(PostgrestException ex) =>
         ex.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase)

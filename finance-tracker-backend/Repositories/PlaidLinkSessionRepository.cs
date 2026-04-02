@@ -37,6 +37,7 @@ public sealed class PlaidLinkSessionRepository(Supabase.Client supabaseClient) :
         Guid profileId,
         string linkToken,
         DateTimeOffset expiresAt,
+        string intent,
         CancellationToken cancellationToken = default)
     {
         await supabaseClient.From<PlaidLinkSession>()
@@ -44,6 +45,7 @@ public sealed class PlaidLinkSessionRepository(Supabase.Client supabaseClient) :
             .Where(s => s.ProfileId == profileId)
             .Set(s => s.LinkToken, linkToken)
             .Set(s => s.ExpiresAt, expiresAt)
+            .Set(s => s.Intent, intent)
             .Set(s => s.CreatedAt, DateTimeOffset.UtcNow)
             .Update(null, cancellationToken)
             .ConfigureAwait(false);

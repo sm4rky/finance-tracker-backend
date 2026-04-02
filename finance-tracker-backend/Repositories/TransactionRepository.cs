@@ -27,6 +27,78 @@ public sealed class TransactionRepository(
         return result.Models.Count > 0 ? result.Models[0] : null;
     }
 
+    public async Task<Transaction?> FindActiveDuplicateForFingerprintAsync(
+        Guid profileId,
+        DateOnly date,
+        decimal amount,
+        string normalizedMerchantFingerprint,
+        string incomingPlaidTransactionId,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql =
+            """
+            SELECT
+                t.id,
+                t.profile_id,
+                t.linked_bank_account_id,
+                t.plaid_transaction_id,
+                t.amount,
+                t.iso_currency_code,
+                t.date,
+                t.authorized_date,
+                t.authorized_datetime,
+                t.name,
+                t.merchant_name,
+                t.merchant_entity_id,
+                t.pending,
+                t.pending_transaction_id,
+                t.payment_channel,
+                t.transaction_type,
+                t.pfc_primary,
+                t.pfc_detailed,
+                t.pfc_confidence_level,
+                t.pfc_version,
+                t.logo_url,
+                t.website,
+                t.status,
+                t.removed_at,
+                t.created_at,
+                t.updated_at
+            FROM transactions t
+            WHERE t.profile_id = @profile_id
+              AND t.removed_at IS NULL
+              AND t.date = @date
+              AND t.amount = @amount
+              AND lower(trim(both from regexp_replace(coalesce(t.merchant_name, t.name), '\s+', ' ', 'g'))) = @norm_merchant
+              AND t.plaid_transaction_id <> @incoming_plaid_id
+              AND (
+                  SELECT COUNT(*)::bigint
+                  FROM transactions t2
+                  WHERE t2.profile_id = @profile_id
+                    AND t2.removed_at IS NULL
+                    AND t2.date = @date
+                    AND t2.amount = @amount
+                    AND lower(trim(both from regexp_replace(coalesce(t2.merchant_name, t2.name), '\s+', ' ', 'g'))) = @norm_merchant
+                    AND t2.plaid_transaction_id <> @incoming_plaid_id
+              ) = 1;
+            """;
+
+        await using var conn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+
+        cmd.Parameters.AddWithValue("profile_id", profileId);
+        cmd.Parameters.Add(new NpgsqlParameter("date", NpgsqlDbType.Date) { Value = date });
+        cmd.Parameters.AddWithValue("amount", amount);
+        cmd.Parameters.AddWithValue("norm_merchant", normalizedMerchantFingerprint);
+        cmd.Parameters.AddWithValue("incoming_plaid_id", incomingPlaidTransactionId);
+
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            return null;
+
+        return MapTransaction(reader);
+    }
+
     public async Task InsertAsync(
         Transaction transaction,
         CancellationToken cancellationToken = default)
@@ -114,6 +186,56 @@ public sealed class TransactionRepository(
 
         cmd.Parameters.AddWithValue("profile_id", profileId);
         cmd.Parameters.AddWithValue("linked_bank_id", linkedBankId);
+
+        return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<int> SetStatusByLinkedBankAccountIdAsync(
+        Guid profileId,
+        Guid linkedBankAccountId,
+        string status,
+        CancellationToken cancellationToken = default)
+    {
+        var updatedAt = DateTimeOffset.UtcNow;
+
+        const string sql =
+            """
+            UPDATE transactions
+            SET status = @status,
+                updated_at = @updated_at
+            WHERE profile_id = @profile_id
+              AND linked_bank_account_id = @linked_bank_account_id
+              AND removed_at IS NULL
+            """;
+
+        await using var conn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+
+        cmd.Parameters.AddWithValue("profile_id", profileId);
+        cmd.Parameters.AddWithValue("linked_bank_account_id", linkedBankAccountId);
+        cmd.Parameters.AddWithValue("status", status);
+        cmd.Parameters.AddWithValue("updated_at", updatedAt);
+
+        return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<int> DeleteByProfileAndLinkedBankAccountIdAsync(
+        Guid profileId,
+        Guid linkedBankAccountId,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql =
+            """
+            DELETE FROM transactions
+            WHERE profile_id = @profile_id
+              AND linked_bank_account_id = @linked_bank_account_id
+            """;
+
+        await using var conn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+
+        cmd.Parameters.AddWithValue("profile_id", profileId);
+        cmd.Parameters.AddWithValue("linked_bank_account_id", linkedBankAccountId);
 
         return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }

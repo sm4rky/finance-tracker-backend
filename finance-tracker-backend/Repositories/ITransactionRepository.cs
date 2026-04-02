@@ -11,6 +11,14 @@ public interface ITransactionRepository
         string plaidTransactionId,
         CancellationToken cancellationToken = default);
 
+    Task<Transaction?> FindActiveDuplicateForFingerprintAsync(
+        Guid profileId,
+        DateOnly date,
+        decimal amount,
+        string normalizedMerchantFingerprint,
+        string incomingPlaidTransactionId,
+        CancellationToken cancellationToken = default);
+
     Task InsertAsync(Transaction transaction, CancellationToken cancellationToken = default);
 
     Task UpdateAsync(Transaction transaction, CancellationToken cancellationToken = default);
@@ -24,6 +32,17 @@ public interface ITransactionRepository
     Task<int> DeleteByProfileAndLinkedBankIdAsync(
         Guid profileId,
         Guid linkedBankId,
+        CancellationToken cancellationToken = default);
+
+    Task<int> SetStatusByLinkedBankAccountIdAsync(
+        Guid profileId,
+        Guid linkedBankAccountId,
+        string status,
+        CancellationToken cancellationToken = default);
+
+    Task<int> DeleteByProfileAndLinkedBankAccountIdAsync(
+        Guid profileId,
+        Guid linkedBankAccountId,
         CancellationToken cancellationToken = default);
 
     Task<long> CountAsync(

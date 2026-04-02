@@ -11,5 +11,6 @@ public sealed class LinkedBankSummaryResponse
     public DateTimeOffset? TokenRemovedAt { get; set; }
     public DateTimeOffset? LastSyncedAt { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+    public bool HasPendingUpdateAccountDecisions { get; set; }
     public IReadOnlyList<LinkedBankAccountResponse> Accounts { get; set; } = [];
 }

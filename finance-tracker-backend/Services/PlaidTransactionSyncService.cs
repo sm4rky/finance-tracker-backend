@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.RegularExpressions;
 using finance_tracker_backend.Contracts.Responses;
 using finance_tracker_backend.Infrastructure;
 using finance_tracker_backend.Middleware;
@@ -173,6 +174,23 @@ public sealed class PlaidTransactionSyncService(
 
         if (existing is null)
         {
+            var normMerchant = ComputeNormalizedMerchantFingerprint(p);
+            var duplicate = await transactionRepository.FindActiveDuplicateForFingerprintAsync(
+                    profileId,
+                    p.Date!.Value,
+                    p.Amount ?? 0,
+                    normMerchant,
+                    tid,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (duplicate is not null)
+            {
+                MapPlaidToRow(duplicate, p, linkedAccountId, status, now);
+                await transactionRepository.UpdateAsync(duplicate, cancellationToken).ConfigureAwait(false);
+                return true;
+            }
+
             var row = new Models.Transaction
             {
                 Id = Guid.NewGuid(),
@@ -187,6 +205,14 @@ public sealed class PlaidTransactionSyncService(
         MapPlaidToRow(existing, p, linkedAccountId, status, now);
         await transactionRepository.UpdateAsync(existing, cancellationToken).ConfigureAwait(false);
         return true;
+    }
+
+    private static string ComputeNormalizedMerchantFingerprint(PlaidTransaction p)
+    {
+        var nameField = p.MerchantName ?? p.OriginalDescription ?? string.Empty;
+        var raw = string.IsNullOrWhiteSpace(p.MerchantName) ? nameField.Trim() : p.MerchantName.Trim();
+        raw = Regex.Replace(raw, @"\s+", " ").Trim();
+        return raw.ToLowerInvariant();
     }
 
     private static void MapPlaidToRow(
