@@ -53,4 +53,17 @@ public sealed class TransactionsController(ITransactionService transactionServic
         var dto = await transactionService.UpdateAsync(User, transactionId, request, cancellationToken).ConfigureAwait(false);
         return Ok(dto);
     }
+
+    [HttpPost("delete")]
+    [Produces("application/json")]
+    [ProducesResponseType(typeof(DeleteTransactionsResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<DeleteTransactionsResponse>> DeleteMany(
+        [FromBody] DeleteTransactionsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var dto = await transactionService.DeleteManyAsync(User, request, cancellationToken).ConfigureAwait(false);
+        return Ok(dto);
+    }
 }

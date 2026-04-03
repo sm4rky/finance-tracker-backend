@@ -22,4 +22,9 @@ public interface ITransactionService
         Guid transactionId,
         SaveTransactionRequest request,
         CancellationToken cancellationToken = default);
+
+    Task<DeleteTransactionsResponse> DeleteManyAsync(
+        ClaimsPrincipal user,
+        DeleteTransactionsRequest request,
+        CancellationToken cancellationToken = default);
 }

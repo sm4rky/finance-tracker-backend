@@ -19,6 +19,7 @@ public sealed class TransactionService(
     private const string PfcPrimaryUncategorizedQueryValue = "__UNCATEGORIZED__";
     private const string IsoCurrencyCodeUsd = "USD";
     private const string PfcVersionDefault = "V2";
+    private const int MaxDeleteTransactionBatchSize = 100;
 
     private sealed record TransactionDraft(
         Guid? LinkedBankAccountId,
@@ -151,6 +152,35 @@ public sealed class TransactionService(
 
         await transactionRepository.UpdateAsync(existing, cancellationToken).ConfigureAwait(false);
         return ToResponse(existing);
+    }
+
+    public async Task<DeleteTransactionsResponse> DeleteManyAsync(
+        ClaimsPrincipal user,
+        DeleteTransactionsRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var profileId = user.RequireProfileId();
+
+        var distinctIds = (request.TransactionIds)
+            .Distinct()
+            .ToList();
+
+        switch (distinctIds.Count)
+        {
+            case 0:
+                throw new ArgumentException("transactionIds must contain at least one id.");
+            case > MaxDeleteTransactionBatchSize:
+                throw new ArgumentException(
+                    $"transactionIds cannot contain more than {MaxDeleteTransactionBatchSize} ids.");
+            default:
+            {
+                var deletedCount = await transactionRepository
+                    .DeleteByIdsForProfileAsync(profileId, distinctIds, cancellationToken)
+                    .ConfigureAwait(false);
+
+                return new DeleteTransactionsResponse { DeletedCount = deletedCount };
+            }
+        }
     }
 
     private async Task<TransactionDraft> BuildDraftAsync(
