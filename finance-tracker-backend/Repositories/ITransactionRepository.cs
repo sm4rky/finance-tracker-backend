@@ -6,6 +6,11 @@ namespace finance_tracker_backend.Repositories;
 
 public interface ITransactionRepository
 {
+    Task<Transaction?> GetByIdForProfileAsync(
+        Guid profileId,
+        Guid transactionId,
+        CancellationToken cancellationToken = default);
+
     Task<Transaction?> GetByProfileAndPlaidTransactionIdAsync(
         Guid profileId,
         string plaidTransactionId,

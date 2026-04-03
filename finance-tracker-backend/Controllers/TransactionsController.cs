@@ -24,4 +24,33 @@ public sealed class TransactionsController(ITransactionService transactionServic
         var dto = await transactionService.QueryAsync(User, request, cancellationToken).ConfigureAwait(false);
         return Ok(dto);
     }
+
+    [HttpPost]
+    [Produces("application/json")]
+    [ProducesResponseType(typeof(TransactionResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<TransactionResponse>> Create(
+        [FromBody] SaveTransactionRequest request,
+        CancellationToken cancellationToken)
+    {
+        var dto = await transactionService.CreateAsync(User, request, cancellationToken).ConfigureAwait(false);
+        return Ok(dto);
+    }
+
+    [HttpPut("{transactionId:guid}")]
+    [Produces("application/json")]
+    [ProducesResponseType(typeof(TransactionResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<TransactionResponse>> Update(
+        [FromRoute] Guid transactionId,
+        [FromBody] SaveTransactionRequest request,
+        CancellationToken cancellationToken)
+    {
+        var dto = await transactionService.UpdateAsync(User, transactionId, request, cancellationToken).ConfigureAwait(false);
+        return Ok(dto);
+    }
 }

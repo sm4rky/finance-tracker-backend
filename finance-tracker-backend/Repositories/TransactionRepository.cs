@@ -12,6 +12,21 @@ public sealed class TransactionRepository(
     Supabase.Client supabaseClient,
     IConfiguration configuration) : ITransactionRepository
 {
+    public async Task<Transaction?> GetByIdForProfileAsync(
+        Guid profileId,
+        Guid transactionId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await supabaseClient
+            .From<Transaction>()
+            .Where(t => t.ProfileId == profileId)
+            .Where(t => t.Id == transactionId)
+            .Get(cancellationToken)
+            .ConfigureAwait(false);
+
+        return result.Models.Count > 0 ? result.Models[0] : null;
+    }
+
     public async Task<Transaction?> GetByProfileAndPlaidTransactionIdAsync(
         Guid profileId,
         string plaidTransactionId,
@@ -118,7 +133,7 @@ public sealed class TransactionRepository(
             .Where(t => t.Id == transaction.Id)
             .Where(t => t.ProfileId == transaction.ProfileId)
             .Set(t => t.LinkedBankAccountId!, transaction.LinkedBankAccountId)
-            .Set(t => t.PlaidTransactionId, transaction.PlaidTransactionId)
+            .Set(t => t.PlaidTransactionId!, transaction.PlaidTransactionId)
             .Set(t => t.Amount, transaction.Amount)
             .Set(t => t.IsoCurrencyCode!, transaction.IsoCurrencyCode)
             .Set(t => t.Date, transaction.Date)
@@ -647,7 +662,7 @@ public sealed class TransactionRepository(
         Id = reader.GetGuid(0),
         ProfileId = reader.GetGuid(1),
         LinkedBankAccountId = reader.IsDBNull(2) ? null : reader.GetGuid(2),
-        PlaidTransactionId = reader.GetString(3),
+        PlaidTransactionId = reader.IsDBNull(3) ? null : reader.GetString(3),
         Amount = reader.GetDecimal(4),
         IsoCurrencyCode = reader.IsDBNull(5) ? null : reader.GetString(5),
         Date = reader.GetFieldValue<DateOnly>(6),

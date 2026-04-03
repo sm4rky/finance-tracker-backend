@@ -4,6 +4,8 @@ namespace finance_tracker_backend.Repositories;
 
 public interface ILinkedBankAccountRepository
 {
+    Task<LinkedBankAccount?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
+
     Task<LinkedBankAccount?> GetByLinkedBankAndPlaidAccountIdAsync(
         Guid linkedBankId,
         string plaidAccountId,

@@ -16,7 +16,7 @@ public class Transaction : BaseModel
     public Guid? LinkedBankAccountId { get; set; }
 
     [Column("plaid_transaction_id")]
-    public string PlaidTransactionId { get; set; } = string.Empty;
+    public string? PlaidTransactionId { get; set; }
 
     [Column("amount")]
     public decimal Amount { get; set; }

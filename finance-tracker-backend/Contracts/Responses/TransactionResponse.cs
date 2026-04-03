@@ -4,7 +4,7 @@ public sealed class TransactionResponse
 {
     public Guid Id { get; init; }
     public Guid? LinkedBankAccountId { get; init; }
-    public string PlaidTransactionId { get; init; } = string.Empty;
+    public string? PlaidTransactionId { get; init; }
     public decimal Amount { get; init; }
     public string? IsoCurrencyCode { get; init; }
     public DateOnly Date { get; init; }
@@ -16,6 +16,7 @@ public sealed class TransactionResponse
     public string? PaymentChannel { get; init; }
     public string? PfcPrimary { get; init; }
     public string? PfcDetailed { get; init; }
+    public string? Website { get; init; }
     public string? LogoUrl { get; init; }
     public string Status { get; init; } = string.Empty;
     public DateTimeOffset? RemovedAt { get; init; }

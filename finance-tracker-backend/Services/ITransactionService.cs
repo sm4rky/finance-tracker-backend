@@ -11,4 +11,15 @@ public interface ITransactionService
         ClaimsPrincipal user,
         QueryTransactionsRequest request,
         CancellationToken cancellationToken = default);
+
+    Task<TransactionResponse> CreateAsync(
+        ClaimsPrincipal user,
+        SaveTransactionRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<TransactionResponse> UpdateAsync(
+        ClaimsPrincipal user,
+        Guid transactionId,
+        SaveTransactionRequest request,
+        CancellationToken cancellationToken = default);
 }
