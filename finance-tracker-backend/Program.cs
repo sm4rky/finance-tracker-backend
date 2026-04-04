@@ -137,6 +137,7 @@ builder.Services.AddScoped<IPlaidLinkSessionRepository, PlaidLinkSessionReposito
 builder.Services.AddScoped<ILinkedBankRepository, LinkedBankRepository>();
 builder.Services.AddScoped<ILinkedBankAccountRepository, LinkedBankAccountRepository>();
 builder.Services.AddScoped<ITransactionRepository, TransactionRepository>();
+builder.Services.AddScoped<IProfileRecurringCashflowRepository, ProfileRecurringCashflowRepository>();
 builder.Services.AddScoped<IPlaidFinanceCategoryPrimaryRepository, PlaidFinanceCategoryPrimaryRepository>();
 
 // Services
@@ -165,6 +166,8 @@ builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IEnsureUserService, EnsureUserService>();
 builder.Services.AddScoped<IPlaidConnectionService, PlaidConnectionService>();
 builder.Services.AddScoped<IPlaidTransactionSyncService, PlaidTransactionSyncService>();
+builder.Services.AddScoped<IPlaidRecurringCashflowRefreshService, PlaidRecurringCashflowRefreshService>();
+builder.Services.AddScoped<IProfileRecurringCashflowService, ProfileRecurringCashflowService>();
 builder.Services.AddScoped<ITransactionService, TransactionService>();
 builder.Services.AddScoped<IPlaidFinanceCategoryPrimaryReadService, PlaidFinanceCategoryPrimaryReadService>();
 

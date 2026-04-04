@@ -24,12 +24,15 @@ public sealed class PlaidConnectionService(
     ILinkedBankRepository linkedBankRepository,
     ILinkedBankAccountRepository linkedBankAccountRepository,
     ITransactionRepository transactionRepository,
+    IProfileRecurringCashflowRepository profileRecurringCashflowRepository,
     PlaidAccessTokenProtector tokenProtector,
     IPlaidTransactionSyncService plaidTransactionSyncService,
+    IPlaidRecurringCashflowRefreshService plaidRecurringCashflowRefreshService,
     ILogger<PlaidConnectionService> logger) : IPlaidConnectionService
 {
     private readonly IConfigurationSection _plaid = configuration.GetSection("Plaid");
 
+    // Recurring streams: same Transactions Item; /transactions/recurring/get — not a valid Link `products` entry.
     private static readonly Products[] DefaultProducts = [Products.Transactions];
     private static readonly CountryCode[] DefaultCountries = [CountryCode.Us];
 
@@ -228,6 +231,20 @@ public sealed class PlaidConnectionService(
                 bank.Id);
         }
 
+        try
+        {
+            await plaidRecurringCashflowRefreshService
+                .SyncLinkedBankRecurringCashflowsAsync(user, bank.Id, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(
+                ex,
+                "Plaid recurring cashflow refresh after exchange failed (LinkedBankId={LinkedBankId}). Client can call refresh again.",
+                bank.Id);
+        }
+
         return new ExchangePlaidPublicTokenResponse
         {
             LinkedBankId = bank.Id,
@@ -299,6 +316,10 @@ public sealed class PlaidConnectionService(
             if (acc is null)
                 throw new ArgumentException($"Account {pid} is no longer linked to this bank.");
 
+            await profileRecurringCashflowRepository
+                .SetStatusForLinkedBankAccountAsync(profileId, acc.Id, "unlinked", cancellationToken)
+                .ConfigureAwait(false);
+
             if (d.DeleteTransactions)
             {
                 await transactionRepository
@@ -326,6 +347,20 @@ public sealed class PlaidConnectionService(
         var sync = await plaidTransactionSyncService
             .SyncLinkedBankAsync(user, linkedBankId, cancellationToken, bypassCooldown: true)
             .ConfigureAwait(false);
+
+        try
+        {
+            await plaidRecurringCashflowRefreshService
+                .SyncLinkedBankRecurringCashflowsAsync(user, linkedBankId, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(
+                ex,
+                "Plaid recurring cashflow refresh after confirm update accounts failed (LinkedBankId={LinkedBankId}).",
+                linkedBankId);
+        }
 
         return new ConfirmPlaidUpdateAccountsResponse { LinkedBankId = linkedBankId, Sync = sync };
     }
