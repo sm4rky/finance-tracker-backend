@@ -70,6 +70,9 @@ public sealed class TransactionService(
         var descending = string.IsNullOrWhiteSpace(request.SortDirection)
             || ParseSortDirectionOrThrow(request.SortDirection.Trim());
 
+        if (TryEmptyPageIfFromAfterTo(request, page, pageSize, out var emptyPage))
+            return emptyPage!;
+
         var query = BuildTransactionQuery(request, page, pageSize, sortBy, descending);
 
         var totalCount = await transactionRepository
@@ -329,6 +332,50 @@ public sealed class TransactionService(
             : value;
     }
 
+    private static bool TryEmptyPageIfFromAfterTo(
+        QueryTransactionsRequest request,
+        int page,
+        int pageSize,
+        out PagedResponse<TransactionResponse>? emptyPage)
+    {
+        emptyPage = null;
+
+        if (string.IsNullOrWhiteSpace(request.DateFrom) || string.IsNullOrWhiteSpace(request.DateTo))
+            return false;
+
+        if (!DateOnly.TryParse(
+                request.DateFrom.Trim(),
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out var df))
+            return false;
+
+        if (!DateOnly.TryParse(
+                request.DateTo.Trim(),
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out var dt))
+            return false;
+
+        var todayUtc = DateOnly.FromDateTime(DateTime.UtcNow);
+        if (df > todayUtc)
+            throw new ArgumentException("dateFrom cannot be in the future.");
+        if (dt > todayUtc)
+            throw new ArgumentException("dateTo cannot be in the future.");
+
+        if (df <= dt)
+            return false;
+
+        emptyPage = new PagedResponse<TransactionResponse>
+        {
+            Items = [],
+            TotalCount = 0,
+            Page = page,
+            PageSize = pageSize
+        };
+        return true;
+    }
+
     private static TransactionQueryFilters BuildTransactionQuery(
         QueryTransactionsRequest request,
         int page,
@@ -406,9 +453,6 @@ public sealed class TransactionService(
 
         if (dateTo is { } to && to > todayUtc)
             throw new ArgumentException("dateTo cannot be in the future.");
-
-        if (dateFrom is { } validatedFrom && dateTo is { } validatedTo && validatedFrom > validatedTo)
-            throw new ArgumentException("dateFrom must be on or before dateTo.");
 
         var absAmountMin = request.AmountMin;
         var absAmountMax = request.AmountMax;
