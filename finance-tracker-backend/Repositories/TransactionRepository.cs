@@ -518,6 +518,7 @@ public sealed class TransactionRepository(
 
         if (!hasPfcPrimaryList && !includeUncategorized)
         {
+            sql.Append(" AND FALSE");
             return;
         }
 
@@ -555,6 +556,7 @@ public sealed class TransactionRepository(
     {
         if (filters.PaymentChannels.Count == 0)
         {
+            sql.Append(" AND FALSE");
             return;
         }
 
