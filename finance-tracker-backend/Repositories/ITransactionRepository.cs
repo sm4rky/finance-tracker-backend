@@ -69,4 +69,9 @@ public interface ITransactionRepository
         Guid profileId,
         TransactionQueryFilters query,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<(string? PfcPrimary, decimal TotalExpenses)>> SumExpensesByPfcPrimaryAsync(
+        Guid profileId,
+        TransactionQueryFilters query,
+        CancellationToken cancellationToken = default);
 }

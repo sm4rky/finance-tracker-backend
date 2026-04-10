@@ -11,7 +11,7 @@ public sealed class CashflowService(ITransactionRepository transactionRepository
 {
     public async Task<CashflowResponse> GetAsync(
         ClaimsPrincipal user,
-        QueryCashflowRequest request,
+        TransactionAnalyticsQueryRequest request,
         CancellationToken cancellationToken = default)
     {
         var profileId = user.RequireProfileId();
@@ -19,7 +19,7 @@ public sealed class CashflowService(ITransactionRepository transactionRepository
         if (string.IsNullOrWhiteSpace(request.DateFrom) || string.IsNullOrWhiteSpace(request.DateTo))
             throw new ArgumentException("dateFrom and dateTo are required.");
 
-        var filters = TransactionQueryFilterHelper.CreateForCashflowAggregation(request);
+        var filters = TransactionQueryFilterHelper.CreateForAnalyticsAggregation(request);
         if (filters.DateFromInclusive is not { } from || filters.DateToInclusive is not { } to)
             throw new ArgumentException("dateFrom and dateTo are required.");
 

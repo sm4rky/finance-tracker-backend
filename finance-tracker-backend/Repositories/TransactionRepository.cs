@@ -416,6 +416,53 @@ public sealed class TransactionRepository(
         return (income, expenses);
     }
 
+    public async Task<IReadOnlyList<(string? PfcPrimary, decimal TotalExpenses)>> SumExpensesByPfcPrimaryAsync(
+        Guid profileId,
+        TransactionQueryFilters query,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateFilters(query);
+
+        var sql = new StringBuilder(
+            """
+            SELECT s.pfc_primary, s.total_expenses
+            FROM (
+                SELECT
+                    pfc_primary,
+                    COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0)::numeric AS total_expenses
+                FROM transactions
+                WHERE profile_id = @profile_id
+                  AND removed_at IS NULL
+            """);
+
+        await using var conn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = new NpgsqlCommand(null, conn);
+
+        cmd.Parameters.AddWithValue("profile_id", profileId);
+        AppendFilters(cmd, sql, query);
+
+        sql.Append(
+            """
+             GROUP BY pfc_primary
+            ) AS s
+            WHERE s.total_expenses <> 0
+            ORDER BY s.total_expenses DESC;
+            """);
+
+        cmd.CommandText = sql.ToString();
+
+        var rows = new List<(string?, decimal)>();
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var pfc = reader.IsDBNull(0) ? null : reader.GetString(0);
+            var total = reader.GetDecimal(1);
+            rows.Add((pfc, total));
+        }
+
+        return rows;
+    }
+
     private async Task<NpgsqlConnection> OpenConnectionAsync(CancellationToken cancellationToken)
     {
         var connectionString = GetRequiredConnectionString();

@@ -37,7 +37,7 @@ public static class TransactionQueryFilterHelper
         };
     }
 
-    public static TransactionQueryFilters CreateForCashflowAggregation(QueryCashflowRequest request)
+    public static TransactionQueryFilters CreateForAnalyticsAggregation(TransactionAnalyticsQueryRequest request)
     {
         return BuildCore(
             request.AccountIds,
