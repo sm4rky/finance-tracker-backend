@@ -382,6 +382,40 @@ public sealed class TransactionRepository(
         return transactions;
     }
 
+    public async Task<(decimal TotalIncome, decimal TotalExpenses)> SumIncomeAndExpenseAsync(
+        Guid profileId,
+        TransactionQueryFilters query,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateFilters(query);
+
+        var sql = new StringBuilder(
+            """
+            SELECT
+                COALESCE(SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END), 0)::numeric,
+                COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0)::numeric
+            FROM transactions
+            WHERE profile_id = @profile_id
+              AND removed_at IS NULL
+            """);
+
+        await using var conn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = new NpgsqlCommand(null, conn);
+
+        cmd.Parameters.AddWithValue("profile_id", profileId);
+        AppendFilters(cmd, sql, query);
+
+        cmd.CommandText = sql.ToString();
+
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            return (0m, 0m);
+
+        var income = reader.GetDecimal(0);
+        var expenses = reader.GetDecimal(1);
+        return (income, expenses);
+    }
+
     private async Task<NpgsqlConnection> OpenConnectionAsync(CancellationToken cancellationToken)
     {
         var connectionString = GetRequiredConnectionString();

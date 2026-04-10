@@ -64,4 +64,9 @@ public interface ITransactionRepository
         Guid profileId,
         TransactionQueryFilters query,
         CancellationToken cancellationToken = default);
+
+    Task<(decimal TotalIncome, decimal TotalExpenses)> SumIncomeAndExpenseAsync(
+        Guid profileId,
+        TransactionQueryFilters query,
+        CancellationToken cancellationToken = default);
 }

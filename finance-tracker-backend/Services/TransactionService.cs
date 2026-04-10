@@ -16,7 +16,6 @@ public sealed class TransactionService(
     ILinkedBankAccountRepository linkedBankAccountRepository,
     ILinkedBankRepository linkedBankRepository) : ITransactionService
 {
-    private const string PfcPrimaryUncategorizedQueryValue = "__UNCATEGORIZED__";
     private const string IsoCurrencyCodeUsd = "USD";
     private const string PfcVersionDefault = "V2";
     private const int MaxDeleteTransactionBatchSize = 100;
@@ -68,7 +67,7 @@ public sealed class TransactionService(
             : ParseSortByFromQuery(request.SortBy);
 
         var descending = string.IsNullOrWhiteSpace(request.SortDirection)
-            || ParseSortDirectionOrThrow(request.SortDirection.Trim());
+                         || ParseSortDirectionOrThrow(request.SortDirection.Trim());
 
         if (TryEmptyPageIfFromAfterTo(request, page, pageSize, out var emptyPage))
             return emptyPage!;
@@ -200,7 +199,7 @@ public sealed class TransactionService(
         if (request.Amount < 0)
             throw new ArgumentException("amount must be greater than or equal to 0.");
 
-        var amountFlow = ParseAndValidateAmountFlow(request.AmountFlow);
+        var amountFlow = TransactionQueryFilterHelper.ParseAndValidateAmountFlow(request.AmountFlow);
         var merchantName = TrimToNull(request.MerchantName);
 
         return new TransactionDraft(
@@ -278,22 +277,6 @@ public sealed class TransactionService(
         throw new ArgumentException("status must be 'active' or 'account_opted_out'.");
     }
 
-    private static TransactionFlow ParseAndValidateAmountFlow(string? raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw))
-            throw new ArgumentException("amountFlow is required.");
-
-        var value = raw.Trim();
-
-        if (value.Equals("income", StringComparison.OrdinalIgnoreCase))
-            return TransactionFlow.Income;
-
-        if (value.Equals("expense", StringComparison.OrdinalIgnoreCase))
-            return TransactionFlow.Expense;
-
-        throw new ArgumentException("amountFlow must be 'income' or 'expense'.");
-    }
-
     private static decimal ApplyAmountFlowSign(decimal amount, TransactionFlow flow)
     {
         var absoluteAmount = Math.Abs(amount);
@@ -327,7 +310,8 @@ public sealed class TransactionService(
         if (value is null)
             return null;
 
-        return string.Equals(value, PfcPrimaryUncategorizedQueryValue, StringComparison.OrdinalIgnoreCase)
+        return string.Equals(value, TransactionQueryFilterHelper.PfcPrimaryUncategorizedQueryValue,
+            StringComparison.OrdinalIgnoreCase)
             ? null
             : value;
     }
@@ -381,114 +365,8 @@ public sealed class TransactionService(
         int page,
         int pageSize,
         TransactionSortField sortBy,
-        bool descending)
-    {
-        IReadOnlyList<Guid> accountIds = request.AccountIds is { Count: > 0 }
-            ? request.AccountIds
-                .Distinct()
-                .ToList()
-            : Array.Empty<Guid>();
-
-        var includePfcUncategorized = false;
-        var pfcPrimaryList = new List<string>();
-
-        foreach (var value in from rawValue in request.PfcPrimaryList ?? []
-                 where !string.IsNullOrWhiteSpace(rawValue)
-                 select rawValue.Trim())
-        {
-            if (string.Equals(value, PfcPrimaryUncategorizedQueryValue, StringComparison.Ordinal))
-            {
-                includePfcUncategorized = true;
-                continue;
-            }
-
-            pfcPrimaryList.Add(value);
-        }
-
-        var distinctPfcPrimaryList = pfcPrimaryList
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-
-        var paymentChannels = (request.PaymentChannels ?? [])
-            .Where(channel => !string.IsNullOrWhiteSpace(channel))
-            .Select(channel => channel.Trim())
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-
-        DateOnly? dateFrom = null;
-        DateOnly? dateTo = null;
-
-        if (!string.IsNullOrWhiteSpace(request.DateFrom))
-        {
-            if (!DateOnly.TryParse(
-                    request.DateFrom.Trim(),
-                    CultureInfo.InvariantCulture,
-                    DateTimeStyles.None,
-                    out var parsedDateFrom))
-            {
-                throw new ArgumentException("dateFrom must be an ISO date (YYYY-MM-DD).");
-            }
-
-            dateFrom = parsedDateFrom;
-        }
-
-        if (!string.IsNullOrWhiteSpace(request.DateTo))
-        {
-            if (!DateOnly.TryParse(
-                    request.DateTo.Trim(),
-                    CultureInfo.InvariantCulture,
-                    DateTimeStyles.None,
-                    out var parsedDateTo))
-            {
-                throw new ArgumentException("dateTo must be an ISO date (YYYY-MM-DD).");
-            }
-
-            dateTo = parsedDateTo;
-        }
-
-        var todayUtc = DateOnly.FromDateTime(DateTime.UtcNow);
-
-        if (dateFrom is { } from && from > todayUtc)
-            throw new ArgumentException("dateFrom cannot be in the future.");
-
-        if (dateTo is { } to && to > todayUtc)
-            throw new ArgumentException("dateTo cannot be in the future.");
-
-        var absAmountMin = request.AmountMin;
-        var absAmountMax = request.AmountMax;
-
-        if (absAmountMin is < 0)
-            throw new ArgumentException("amountMin must be non-negative.");
-
-        if (absAmountMax is < 0)
-            throw new ArgumentException("amountMax must be non-negative.");
-
-        if (absAmountMin is { } min && absAmountMax is { } max && min > max)
-            throw new ArgumentException("amountMin must be less than or equal to amountMax.");
-
-        TransactionFlow? amountFlow = null;
-        if (!string.IsNullOrWhiteSpace(request.AmountFlow))
-            amountFlow = ParseAndValidateAmountFlow(request.AmountFlow);
-
-        return new TransactionQueryFilters
-        {
-            Offset = (page - 1) * pageSize,
-            Limit = pageSize,
-            SortBy = sortBy,
-            Descending = descending,
-            AccountIds = accountIds,
-            IncludeUnlinkedTransactions = request.IncludeUnlinkedTransactions ?? true,
-            PfcPrimaryList = distinctPfcPrimaryList,
-            IncludePfcUncategorized = includePfcUncategorized,
-            PaymentChannels = paymentChannels,
-            Pending = request.Pending,
-            DateFromInclusive = dateFrom,
-            DateToInclusive = dateTo,
-            AbsAmountMin = absAmountMin,
-            AbsAmountMax = absAmountMax,
-            AmountFlow = amountFlow
-        };
-    }
+        bool descending) =>
+        TransactionQueryFilterHelper.CreateForPagedQuery(request, page, pageSize, sortBy, descending);
 
     private static TransactionSortField ParseSortByFromQuery(string raw)
     {
