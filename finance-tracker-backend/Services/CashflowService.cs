@@ -44,7 +44,9 @@ public sealed class CashflowService(ITransactionRepository transactionRepository
             TotalIncome = incomeCurrent,
             IncomeChangePercentFromPrevious = PercentChange(incomeCurrent, incomePrevious),
             TotalExpenses = expensesCurrent,
-            ExpensesChangePercentFromPrevious = PercentChange(expensesCurrent, expensesPrevious),
+            ExpensesChangePercentFromPrevious = expensesPrevious == 0m
+                ? null
+                : (expensesPrevious - expensesCurrent) / expensesPrevious * 100m,
             SavingsRate = savingsCurrent,
             SavingsRateChangePercentFromPrevious = savingsCurrent is { } sc && savingsPrevious is { } sp
                 ? PercentChange(sc, sp)
