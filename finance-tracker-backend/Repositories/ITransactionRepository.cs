@@ -80,4 +80,11 @@ public interface ITransactionRepository
             TransactionQueryFilters query,
             string timeGranularity,
             CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<(DateOnly PeriodStartDate, Guid? LinkedBankAccountId, string? OfficialName, decimal ExpenseTotal)>>
+        GetGroupedExpensesByAccountSeriesAsync(
+            Guid profileId,
+            TransactionQueryFilters query,
+            string timeGranularity,
+            CancellationToken cancellationToken = default);
 }

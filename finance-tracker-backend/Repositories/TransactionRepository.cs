@@ -516,6 +516,62 @@ public sealed class TransactionRepository(
         return rows;
     }
 
+    public async Task<IReadOnlyList<(DateOnly PeriodStartDate, Guid? LinkedBankAccountId, string? OfficialName, decimal ExpenseTotal)>>
+        GetGroupedExpensesByAccountSeriesAsync(
+            Guid profileId,
+            TransactionQueryFilters query,
+            string timeGranularity,
+            CancellationToken cancellationToken = default)
+    {
+        ValidateFilters(query);
+
+        var dateTruncUnit = ToDateTruncUnitLiteral(timeGranularity);
+
+        var sql = new StringBuilder(
+            $"""
+            SELECT s.period_start_date, s.linked_bank_account_id, s.official_name, s.total_expenses
+            FROM (
+                SELECT
+                    (date_trunc('{dateTruncUnit}', transactions.date::timestamp))::date AS period_start_date,
+                    transactions.linked_bank_account_id AS linked_bank_account_id,
+                    MAX(NULLIF(TRIM(lba.official_name), '')) AS official_name,
+                    COALESCE(SUM(CASE WHEN transactions.amount > 0 THEN transactions.amount ELSE 0 END), 0)::numeric AS total_expenses
+                FROM transactions
+                LEFT JOIN linked_bank_accounts lba ON lba.id = transactions.linked_bank_account_id
+                WHERE transactions.profile_id = @profile_id
+                  AND transactions.removed_at IS NULL
+            """);
+
+        await using var conn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = new NpgsqlCommand(null, conn);
+
+        cmd.Parameters.AddWithValue("profile_id", profileId);
+        AppendFilters(cmd, sql, query);
+
+        sql.Append(
+            $"""
+                GROUP BY (date_trunc('{dateTruncUnit}', transactions.date::timestamp))::date, transactions.linked_bank_account_id
+            ) AS s
+            WHERE s.total_expenses <> 0
+            ORDER BY s.period_start_date, s.linked_bank_account_id;
+            """);
+
+        cmd.CommandText = sql.ToString();
+
+        var rows = new List<(DateOnly, Guid?, string?, decimal)>();
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var periodStartDate = reader.GetFieldValue<DateOnly>(0);
+            var accountId = reader.IsDBNull(1) ? (Guid?)null : reader.GetGuid(1);
+            var officialName = reader.IsDBNull(2) ? null : reader.GetString(2);
+            var expenseTotal = reader.GetDecimal(3);
+            rows.Add((periodStartDate, accountId, officialName, expenseTotal));
+        }
+
+        return rows;
+    }
+
     private async Task<NpgsqlConnection> OpenConnectionAsync(CancellationToken cancellationToken)
     {
         var connectionString = GetRequiredConnectionString();

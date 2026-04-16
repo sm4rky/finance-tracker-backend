@@ -13,7 +13,8 @@ public sealed class AnalyticsController(
     INetWorthService netWorthService,
     ICashflowService cashflowService,
     IPfcPrimaryExpenseDistributionService pfcPrimaryExpenseDistributionService,
-    IStackedExpensesByPfcPrimaryService stackedExpensesByPfcPrimaryService)
+    IStackedExpensesByPfcPrimaryService stackedExpensesByPfcPrimaryService,
+    IGroupedExpensesByAccountService groupedExpensesByAccountService)
     : ControllerBase
 {
     [HttpGet("net-worth")]
@@ -63,6 +64,21 @@ public sealed class AnalyticsController(
         CancellationToken cancellationToken)
     {
         var dto = await stackedExpensesByPfcPrimaryService
+            .GetAsync(User, request, cancellationToken)
+            .ConfigureAwait(false);
+        return Ok(dto);
+    }
+
+    [HttpGet("expense/grouped-by-account")]
+    [Produces("application/json")]
+    [ProducesResponseType(typeof(GroupedExpensesByAccountResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<GroupedExpensesByAccountResponse>> GetGroupedExpensesByAccount(
+        [FromQuery] GroupedExpensesByAccountQueryRequest request,
+        CancellationToken cancellationToken)
+    {
+        var dto = await groupedExpensesByAccountService
             .GetAsync(User, request, cancellationToken)
             .ConfigureAwait(false);
         return Ok(dto);

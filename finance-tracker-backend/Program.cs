@@ -174,6 +174,7 @@ builder.Services.AddScoped<INetWorthService, NetWorthService>();
 builder.Services.AddScoped<ICashflowService, CashflowService>();
 builder.Services.AddScoped<IPfcPrimaryExpenseDistributionService, PfcPrimaryExpenseDistributionService>();
 builder.Services.AddScoped<IStackedExpensesByPfcPrimaryService, StackedExpensesByPfcPrimaryService>();
+builder.Services.AddScoped<IGroupedExpensesByAccountService, GroupedExpensesByAccountService>();
 
 var app = builder.Build();
 
