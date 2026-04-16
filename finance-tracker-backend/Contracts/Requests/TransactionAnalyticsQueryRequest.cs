@@ -1,6 +1,6 @@
 namespace finance_tracker_backend.Contracts.Requests;
 
-public sealed class TransactionAnalyticsQueryRequest
+public class TransactionAnalyticsQueryRequest
 {
     public List<Guid>? AccountIds { get; set; }
     public bool? IncludeUnlinkedTransactions { get; set; }

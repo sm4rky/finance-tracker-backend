@@ -12,7 +12,8 @@ namespace finance_tracker_backend.Controllers;
 public sealed class AnalyticsController(
     INetWorthService netWorthService,
     ICashflowService cashflowService,
-    IPfcPrimaryExpenseDistributionService pfcPrimaryExpenseDistributionService)
+    IPfcPrimaryExpenseDistributionService pfcPrimaryExpenseDistributionService,
+    IStackedExpensesByPfcPrimaryService stackedExpensesByPfcPrimaryService)
     : ControllerBase
 {
     [HttpGet("net-worth")]
@@ -38,7 +39,7 @@ public sealed class AnalyticsController(
         return Ok(dto);
     }
 
-    [HttpGet("pfc-primary/expense-distribution")]
+    [HttpGet("expense/pfcprimary-distribution")]
     [Produces("application/json")]
     [ProducesResponseType(typeof(PfcPrimaryExpenseDistributionResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -47,6 +48,21 @@ public sealed class AnalyticsController(
         CancellationToken cancellationToken)
     {
         var dto = await pfcPrimaryExpenseDistributionService
+            .GetAsync(User, request, cancellationToken)
+            .ConfigureAwait(false);
+        return Ok(dto);
+    }
+
+    [HttpGet("expense/stacked-by-pfcprimary")]
+    [Produces("application/json")]
+    [ProducesResponseType(typeof(StackedExpensesByPfcPrimaryResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<StackedExpensesByPfcPrimaryResponse>> GetStackedExpensesByPfcPrimary(
+        [FromQuery] StackedExpensesByPfcPrimaryQueryRequest request,
+        CancellationToken cancellationToken)
+    {
+        var dto = await stackedExpensesByPfcPrimaryService
             .GetAsync(User, request, cancellationToken)
             .ConfigureAwait(false);
         return Ok(dto);

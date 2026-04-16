@@ -1,4 +1,3 @@
-using finance_tracker_backend.Enums;
 using finance_tracker_backend.Models;
 using finance_tracker_backend.Types;
 
@@ -74,4 +73,11 @@ public interface ITransactionRepository
         Guid profileId,
         TransactionQueryFilters query,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<(DateOnly PeriodStartDate, string? PfcPrimary, decimal ExpenseTotal)>>
+        GetStackedExpensesByPfcPrimarySeriesAsync(
+            Guid profileId,
+            TransactionQueryFilters query,
+            string timeGranularity,
+            CancellationToken cancellationToken = default);
 }

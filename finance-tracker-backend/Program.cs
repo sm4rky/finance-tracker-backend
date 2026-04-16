@@ -173,6 +173,7 @@ builder.Services.AddScoped<IPlaidFinanceCategoryPrimaryReadService, PlaidFinance
 builder.Services.AddScoped<INetWorthService, NetWorthService>();
 builder.Services.AddScoped<ICashflowService, CashflowService>();
 builder.Services.AddScoped<IPfcPrimaryExpenseDistributionService, PfcPrimaryExpenseDistributionService>();
+builder.Services.AddScoped<IStackedExpensesByPfcPrimaryService, StackedExpensesByPfcPrimaryService>();
 
 var app = builder.Build();
 

@@ -463,6 +463,59 @@ public sealed class TransactionRepository(
         return rows;
     }
 
+    public async Task<IReadOnlyList<(DateOnly PeriodStartDate, string? PfcPrimary, decimal ExpenseTotal)>>
+        GetStackedExpensesByPfcPrimarySeriesAsync(
+            Guid profileId,
+            TransactionQueryFilters query,
+            string timeGranularity,
+            CancellationToken cancellationToken = default)
+    {
+        ValidateFilters(query);
+
+        var dateTruncUnit = ToDateTruncUnitLiteral(timeGranularity);
+
+        var sql = new StringBuilder(
+            $"""
+            SELECT s.period_start_date, s.pfc_primary, s.total_expenses
+            FROM (
+                SELECT
+                    (date_trunc('{dateTruncUnit}', transactions.date::timestamp))::date AS period_start_date,
+                    pfc_primary,
+                    COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0)::numeric AS total_expenses
+                FROM transactions
+                WHERE profile_id = @profile_id
+                  AND removed_at IS NULL
+            """);
+
+        await using var conn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = new NpgsqlCommand(null, conn);
+
+        cmd.Parameters.AddWithValue("profile_id", profileId);
+        AppendFilters(cmd, sql, query);
+
+        sql.Append(
+            $"""
+                GROUP BY (date_trunc('{dateTruncUnit}', transactions.date::timestamp))::date, pfc_primary
+            ) AS s
+            WHERE s.total_expenses <> 0
+            ORDER BY s.period_start_date, s.pfc_primary;
+            """);
+
+        cmd.CommandText = sql.ToString();
+
+        var rows = new List<(DateOnly, string?, decimal)>();
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var periodStartDate = reader.GetFieldValue<DateOnly>(0);
+            var pfcPrimary = reader.IsDBNull(1) ? null : reader.GetString(1);
+            var expenseTotal = reader.GetDecimal(2);
+            rows.Add((periodStartDate, pfcPrimary, expenseTotal));
+        }
+
+        return rows;
+    }
+
     private async Task<NpgsqlConnection> OpenConnectionAsync(CancellationToken cancellationToken)
     {
         var connectionString = GetRequiredConnectionString();
@@ -531,6 +584,16 @@ public sealed class TransactionRepository(
             throw new ArgumentException("AbsAmountMin cannot be greater than AbsAmountMax.");
         }
     }
+
+    private static string ToDateTruncUnitLiteral(string timeGranularity) =>
+        timeGranularity switch
+        {
+            "day" => "day",
+            "week" => "week",
+            "month" => "month",
+            "year" => "year",
+            _ => throw new ArgumentOutOfRangeException(nameof(timeGranularity), timeGranularity, null)
+        };
 
     private static void AppendFilters(
         NpgsqlCommand cmd,
