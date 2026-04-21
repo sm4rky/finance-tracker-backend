@@ -27,4 +27,10 @@ public sealed class ProfileRepository(Supabase.Client supabaseClient) : IProfile
         };
         await supabaseClient.From<Profile>().Insert(profile, options, cancellationToken).ConfigureAwait(false);
     }
+
+    public async Task<IReadOnlyList<Guid>> ListAllProfileIdsAsync(CancellationToken cancellationToken = default)
+    {
+        var result = await supabaseClient.From<Profile>().Get(cancellationToken).ConfigureAwait(false);
+        return result.Models.Select(p => p.Id).ToList();
+    }
 }

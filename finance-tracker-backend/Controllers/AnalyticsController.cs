@@ -27,6 +27,21 @@ public sealed class AnalyticsController(
         return Ok(dto);
     }
 
+    [HttpGet("net-worth/history")]
+    [Produces("application/json")]
+    [ProducesResponseType(typeof(MonthlyNetWorthHistoryResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<MonthlyNetWorthHistoryResponse>> GetMonthlyNetWorthHistory(
+        [FromQuery] MonthlyNetWorthHistoryQueryRequest request,
+        CancellationToken cancellationToken)
+    {
+        var dto = await netWorthService
+            .GetMonthlyNetWorthHistoryAsync(User, request, cancellationToken)
+            .ConfigureAwait(false);
+        return Ok(dto);
+    }
+
     [HttpGet("cashflow")]
     [Produces("application/json")]
     [ProducesResponseType(typeof(CashflowResponse), StatusCodes.Status200OK)]

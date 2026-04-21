@@ -9,4 +9,6 @@ public interface IProfileRepository
     Task<Profile?> GetByIdAsync(Guid userId, CancellationToken cancellationToken = default);
 
     Task InsertAsync(Profile profile, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<Guid>> ListAllProfileIdsAsync(CancellationToken cancellationToken = default);
 }
