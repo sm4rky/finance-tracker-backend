@@ -12,6 +12,11 @@ public interface ITransactionService
         QueryTransactionsRequest request,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<TransactionResponse>> GetRecentAsync(
+        ClaimsPrincipal user,
+        int? limit = null,
+        CancellationToken cancellationToken = default);
+
     Task<TransactionResponse> CreateAsync(
         ClaimsPrincipal user,
         SaveTransactionRequest request,

@@ -382,6 +382,64 @@ public sealed class TransactionRepository(
         return transactions;
     }
 
+    public async Task<IReadOnlyList<Transaction>> ListRecentForProfileAsync(
+        Guid profileId,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        if (limit < 1)
+            throw new ArgumentOutOfRangeException(nameof(limit), "limit must be at least 1.");
+
+        const string sql =
+            """
+            SELECT
+                id,
+                profile_id,
+                linked_bank_account_id,
+                plaid_transaction_id,
+                amount,
+                iso_currency_code,
+                date,
+                authorized_date,
+                authorized_datetime,
+                name,
+                merchant_name,
+                merchant_entity_id,
+                pending,
+                pending_transaction_id,
+                payment_channel,
+                transaction_type,
+                pfc_primary,
+                pfc_detailed,
+                pfc_confidence_level,
+                pfc_version,
+                logo_url,
+                website,
+                status,
+                removed_at,
+                created_at,
+                updated_at
+            FROM transactions
+            WHERE profile_id = @profile_id
+              AND removed_at IS NULL
+              AND status IN ('active', 'account_opted_out')
+            ORDER BY date DESC, id DESC
+            LIMIT @limit;
+            """;
+
+        await using var conn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("profile_id", profileId);
+        cmd.Parameters.AddWithValue("limit", limit);
+
+        var transactions = new List<Transaction>();
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            transactions.Add(MapTransaction(reader));
+
+        return transactions;
+    }
+
     public async Task<(decimal TotalIncome, decimal TotalExpenses)> SumIncomeAndExpenseAsync(
         Guid profileId,
         TransactionQueryFilters query,

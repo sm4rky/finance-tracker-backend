@@ -25,6 +25,19 @@ public sealed class TransactionsController(ITransactionService transactionServic
         return Ok(dto);
     }
 
+    [HttpGet("recent")]
+    [Produces("application/json")]
+    [ProducesResponseType(typeof(List<TransactionResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<IReadOnlyList<TransactionResponse>>> GetRecent(
+        [FromQuery] int? limit,
+        CancellationToken cancellationToken)
+    {
+        var dto = await transactionService.GetRecentAsync(User, limit, cancellationToken).ConfigureAwait(false);
+        return Ok(dto);
+    }
+
     [HttpPost]
     [Produces("application/json")]
     [ProducesResponseType(typeof(TransactionResponse), StatusCodes.Status200OK)]

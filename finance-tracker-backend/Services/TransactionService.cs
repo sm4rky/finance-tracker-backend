@@ -91,6 +91,25 @@ public sealed class TransactionService(
         };
     }
 
+    public async Task<IReadOnlyList<TransactionResponse>> GetRecentAsync(
+        ClaimsPrincipal user,
+        int? limit = null,
+        CancellationToken cancellationToken = default)
+    {
+        var profileId = user.RequireProfileId();
+        var take = limit switch
+        {
+            null => 5,
+            < 1 => throw new ArgumentException("limit must be at least 1."),
+            _ => limit.Value
+        };
+
+        var rows = await transactionRepository
+            .ListRecentForProfileAsync(profileId, take, cancellationToken)
+            .ConfigureAwait(false);
+        return rows.Select(ToResponse).ToList();
+    }
+
     public async Task<TransactionResponse> CreateAsync(
         ClaimsPrincipal user,
         SaveTransactionRequest request,

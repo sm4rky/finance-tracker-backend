@@ -64,6 +64,11 @@ public interface ITransactionRepository
         TransactionQueryFilters query,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<Transaction>> ListRecentForProfileAsync(
+        Guid profileId,
+        int limit,
+        CancellationToken cancellationToken = default);
+
     Task<(decimal TotalIncome, decimal TotalExpenses)> SumIncomeAndExpenseAsync(
         Guid profileId,
         TransactionQueryFilters query,
