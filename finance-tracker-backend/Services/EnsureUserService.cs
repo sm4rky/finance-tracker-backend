@@ -46,6 +46,7 @@ public sealed class EnsureUserService(
             AvatarUrl = avatar,
             Username = username,
             Role = profile.Role,
+            PasswordLoginEnabled = profile.PasswordLoginEnabled,
             Plan = planFromDb ?? string.Empty
         };
     }

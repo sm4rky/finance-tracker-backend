@@ -52,12 +52,12 @@ public sealed partial class ProfileService(IProfileRepository profileRepository)
     public Task<Profile?> GetByIdAsync(Guid userId, CancellationToken cancellationToken = default) =>
         profileRepository.GetByIdAsync(userId, cancellationToken);
 
-    public async Task SetUsernameAsync(ClaimsPrincipal user, string rawUsername,
+    public async Task SetUsernameAsync(ClaimsPrincipal user, string username,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(rawUsername);
+        ArgumentNullException.ThrowIfNull(username);
 
-        var trimmed = rawUsername.Trim();
+        var trimmed = username.Trim();
         if (string.IsNullOrEmpty(trimmed))
             throw new ArgumentException("Username is required.");
 
@@ -83,6 +83,18 @@ public sealed partial class ProfileService(IProfileRepository profileRepository)
             throw new UsernameTakenException("This username is already taken.");
 
         await profileRepository.UpdateUsernameAsync(userId, normalized, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task MarkPasswordLoginEnabledAsync(ClaimsPrincipal user,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = RequireUserId(user);
+        var profile = await profileRepository.GetByIdAsync(userId, cancellationToken).ConfigureAwait(false);
+        if (profile is null)
+            throw new InvalidOperationException("Profile was not found.");
+
+        await profileRepository.UpdatePasswordLoginEnabledAsync(userId, true, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private static Guid RequireUserId(ClaimsPrincipal user)

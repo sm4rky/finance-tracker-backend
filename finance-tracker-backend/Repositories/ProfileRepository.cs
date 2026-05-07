@@ -19,11 +19,11 @@ public sealed class ProfileRepository(Supabase.Client supabaseClient) : IProfile
         return result.Models.Count > 0 ? result.Models[0] : null;
     }
 
-    public async Task<Profile?> GetByUsernameAsync(string normalizedUsername,
+    public async Task<Profile?> GetByUsernameAsync(string username,
         CancellationToken cancellationToken = default)
     {
         var result = await supabaseClient.From<Profile>()
-            .Where(p => p.Username == normalizedUsername)
+            .Where(p => p.Username == username)
             .Get(cancellationToken)
             .ConfigureAwait(false);
         return result.Models.Count > 0 ? result.Models[0] : null;
@@ -38,13 +38,25 @@ public sealed class ProfileRepository(Supabase.Client supabaseClient) : IProfile
         await supabaseClient.From<Profile>().Insert(profile, options, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task UpdateUsernameAsync(Guid profileId, string normalizedUsername,
+    public async Task UpdateUsernameAsync(Guid profileId, string username,
         CancellationToken cancellationToken = default)
     {
         var now = DateTimeOffset.UtcNow;
         await supabaseClient.From<Profile>()
             .Where(p => p.Id == profileId)
-            .Set(p => p.Username!, normalizedUsername)
+            .Set(p => p.Username!, username)
+            .Set(p => p.UpdatedAt, now)
+            .Update(null, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task UpdatePasswordLoginEnabledAsync(Guid profileId, bool enabled,
+        CancellationToken cancellationToken = default)
+    {
+        var now = DateTimeOffset.UtcNow;
+        await supabaseClient.From<Profile>()
+            .Where(p => p.Id == profileId)
+            .Set(p => p.PasswordLoginEnabled, enabled)
             .Set(p => p.UpdatedAt, now)
             .Update(null, cancellationToken)
             .ConfigureAwait(false);

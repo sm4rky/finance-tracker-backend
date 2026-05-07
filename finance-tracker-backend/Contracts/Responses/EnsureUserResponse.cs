@@ -16,5 +16,7 @@ public sealed class EnsureUserResponse
 
     public required string Role { get; init; }
 
+    public required bool PasswordLoginEnabled { get; init; }
+
     public required string Plan { get; init; }
 }

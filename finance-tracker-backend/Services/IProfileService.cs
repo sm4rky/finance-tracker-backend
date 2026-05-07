@@ -10,4 +10,6 @@ public interface IProfileService
     Task<Profile?> GetByIdAsync(Guid userId, CancellationToken cancellationToken = default);
 
     Task SetUsernameAsync(ClaimsPrincipal user, string username, CancellationToken cancellationToken = default);
+
+    Task MarkPasswordLoginEnabledAsync(ClaimsPrincipal user, CancellationToken cancellationToken = default);
 }

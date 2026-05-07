@@ -8,12 +8,15 @@ public interface IProfileRepository
 
     Task<Profile?> GetByIdAsync(Guid userId, CancellationToken cancellationToken = default);
 
-    Task<Profile?> GetByUsernameAsync(string normalizedUsername,
+    Task<Profile?> GetByUsernameAsync(string username,
         CancellationToken cancellationToken = default);
 
     Task InsertAsync(Profile profile, CancellationToken cancellationToken = default);
 
-    Task UpdateUsernameAsync(Guid profileId, string normalizedUsername,
+    Task UpdateUsernameAsync(Guid profileId, string username,
+        CancellationToken cancellationToken = default);
+
+    Task UpdatePasswordLoginEnabledAsync(Guid profileId, bool enabled,
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<Guid>> ListAllProfileIdsAsync(CancellationToken cancellationToken = default);

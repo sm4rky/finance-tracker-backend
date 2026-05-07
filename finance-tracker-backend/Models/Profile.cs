@@ -24,6 +24,9 @@ public class Profile : BaseModel
     [Column("role")]
     public string Role { get; set; } = "user";
 
+    [Column("password_login_enabled")]
+    public bool PasswordLoginEnabled { get; set; }
+
     [Column("created_at")]
     public DateTimeOffset CreatedAt { get; set; }
 

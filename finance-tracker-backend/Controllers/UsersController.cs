@@ -44,4 +44,17 @@ public sealed class UsersController(IEnsureUserService ensureUserService, IProfi
         var dto = await ensureUserService.EnsureAsync(User, cancellationToken).ConfigureAwait(false);
         return Ok(dto);
     }
+
+    [HttpPost("password-login-enabled")]
+    [Produces("application/json")]
+    [ProducesResponseType(typeof(EnsureUserResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<EnsureUserResponse>> MarkPasswordLoginEnabled(
+        CancellationToken cancellationToken)
+    {
+        await profileService.MarkPasswordLoginEnabledAsync(User, cancellationToken).ConfigureAwait(false);
+        var dto = await ensureUserService.EnsureAsync(User, cancellationToken).ConfigureAwait(false);
+        return Ok(dto);
+    }
 }
