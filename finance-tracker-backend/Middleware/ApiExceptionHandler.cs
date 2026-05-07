@@ -52,6 +52,30 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) : I
             return true;
         }
 
+        if (exception is UsernameImmutableException immutable)
+        {
+            logger.LogWarning(immutable, "Username cannot be changed");
+            await WriteMessageAsync(
+                    httpContext,
+                    StatusCodes.Status409Conflict,
+                    immutable.Message,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return true;
+        }
+
+        if (exception is UsernameTakenException taken)
+        {
+            logger.LogWarning(taken, "Username taken");
+            await WriteMessageAsync(
+                    httpContext,
+                    StatusCodes.Status409Conflict,
+                    taken.Message,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return true;
+        }
+
         if (exception is ArgumentException ae)
         {
             logger.LogWarning(ae, "Bad request");

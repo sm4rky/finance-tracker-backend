@@ -11,6 +11,9 @@ public sealed class EnsureUserResponse
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? AvatarUrl { get; init; }
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Username { get; init; }
+
     public required string Role { get; init; }
 
     public required string Plan { get; init; }

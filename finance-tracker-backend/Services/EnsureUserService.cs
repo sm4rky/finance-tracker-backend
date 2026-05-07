@@ -32,6 +32,8 @@ public sealed class EnsureUserService(
 
         var avatar = string.IsNullOrWhiteSpace(profile.AvatarUrl) ? null : profile.AvatarUrl.Trim();
 
+        var username = string.IsNullOrWhiteSpace(profile.Username) ? null : profile.Username.Trim();
+
         if (created)
             await emailService
                 .SendWelcomeForNewProfileAsync(userId, email, string.IsNullOrEmpty(fullName) ? null : fullName, cancellationToken)
@@ -42,6 +44,7 @@ public sealed class EnsureUserService(
             Email = email,
             FullName = fullName,
             AvatarUrl = avatar,
+            Username = username,
             Role = profile.Role,
             Plan = planFromDb ?? string.Empty
         };
