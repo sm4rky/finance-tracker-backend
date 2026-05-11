@@ -62,6 +62,18 @@ public sealed class ProfileRepository(Supabase.Client supabaseClient) : IProfile
             .ConfigureAwait(false);
     }
 
+    public async Task UpdateAvatarUrlAsync(Guid profileId, string? avatarUrl,
+        CancellationToken cancellationToken = default)
+    {
+        var now = DateTimeOffset.UtcNow;
+        await supabaseClient.From<Profile>()
+            .Where(p => p.Id == profileId)
+            .Set(p => p.AvatarUrl!, avatarUrl!)
+            .Set(p => p.UpdatedAt, now)
+            .Update(null, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     public async Task<IReadOnlyList<Guid>> ListAllProfileIdsAsync(CancellationToken cancellationToken = default)
     {
         var result = await supabaseClient.From<Profile>().Get(cancellationToken).ConfigureAwait(false);

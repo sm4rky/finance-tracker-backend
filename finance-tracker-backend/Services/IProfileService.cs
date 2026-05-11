@@ -12,4 +12,7 @@ public interface IProfileService
     Task SetUsernameAsync(ClaimsPrincipal user, string username, CancellationToken cancellationToken = default);
 
     Task MarkPasswordLoginEnabledAsync(ClaimsPrincipal user, CancellationToken cancellationToken = default);
+
+    Task SetAvatarUrlAsync(ClaimsPrincipal user, string? avatarUrl,
+        CancellationToken cancellationToken = default);
 }

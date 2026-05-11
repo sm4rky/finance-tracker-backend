@@ -19,5 +19,8 @@ public interface IProfileRepository
     Task UpdatePasswordLoginEnabledAsync(Guid profileId, bool enabled,
         CancellationToken cancellationToken = default);
 
+    Task UpdateAvatarUrlAsync(Guid profileId, string? avatarUrl,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<Guid>> ListAllProfileIdsAsync(CancellationToken cancellationToken = default);
 }

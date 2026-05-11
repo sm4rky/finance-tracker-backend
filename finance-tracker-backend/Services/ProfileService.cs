@@ -11,6 +11,9 @@ public sealed partial class ProfileService(IProfileRepository profileRepository)
 {
     [GeneratedRegex("^[a-zA-Z0-9._]{8,30}$", RegexOptions.Compiled)]
     private static partial Regex UsernameRegex();
+
+    [GeneratedRegex(@"^[a-zA-Z0-9._/-]+$", RegexOptions.Compiled)]
+    private static partial Regex AvatarStoragePathSuffixRegex();
     public async Task<bool> EnsureRecordExistsAsync(ClaimsPrincipal user, CancellationToken cancellationToken = default)
     {
         var userId = RequireUserId(user);
@@ -95,6 +98,38 @@ public sealed partial class ProfileService(IProfileRepository profileRepository)
 
         await profileRepository.UpdatePasswordLoginEnabledAsync(userId, true, cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    public async Task SetAvatarUrlAsync(ClaimsPrincipal user, string? avatarUrl,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = RequireUserId(user);
+
+        var profile = await profileRepository.GetByIdAsync(userId, cancellationToken).ConfigureAwait(false);
+        if (profile is null)
+            throw new InvalidOperationException("Profile was not found.");
+
+        string? stored = null;
+        if (!string.IsNullOrWhiteSpace(avatarUrl))
+        {
+            var trimmed = avatarUrl.Trim();
+
+            var expectedPrefix = $"{userId:D}/";
+            if (!trimmed.StartsWith(expectedPrefix, StringComparison.Ordinal))
+                throw new ArgumentException(
+                    "Avatar URL must be a storage path starting with your user id, e.g. \"{your-user-id}/avatar.webp\".");
+
+            if (trimmed.Contains("..", StringComparison.Ordinal))
+                throw new ArgumentException("Invalid avatar path.");
+
+            var suffix = trimmed.AsSpan(expectedPrefix.Length);
+            if (suffix.Length == 0 || !AvatarStoragePathSuffixRegex().IsMatch(suffix.ToString()))
+                throw new ArgumentException("Avatar path contains invalid characters.");
+
+            stored = trimmed;
+        }
+
+        await profileRepository.UpdateAvatarUrlAsync(userId, stored, cancellationToken).ConfigureAwait(false);
     }
 
     private static Guid RequireUserId(ClaimsPrincipal user)

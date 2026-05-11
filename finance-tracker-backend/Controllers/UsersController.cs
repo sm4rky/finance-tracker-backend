@@ -57,4 +57,20 @@ public sealed class UsersController(IEnsureUserService ensureUserService, IProfi
         var dto = await ensureUserService.EnsureAsync(User, cancellationToken).ConfigureAwait(false);
         return Ok(dto);
     }
+
+    [HttpPost("avatar")]
+    [Produces("application/json")]
+    [ProducesResponseType(typeof(EnsureUserResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    [ProducesResponseType(StatusCodes.Status502BadGateway)]
+    public async Task<ActionResult<EnsureUserResponse>> SetAvatar(
+        [FromBody] UpdateAvatarRequest body,
+        CancellationToken cancellationToken)
+    {
+        await profileService.SetAvatarUrlAsync(User, body.AvatarUrl, cancellationToken).ConfigureAwait(false);
+        var dto = await ensureUserService.EnsureAsync(User, cancellationToken).ConfigureAwait(false);
+        return Ok(dto);
+    }
 }
