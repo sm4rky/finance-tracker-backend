@@ -10,4 +10,12 @@ public interface IPlaidTransactionSyncService
         Guid linkedBankId,
         CancellationToken cancellationToken = default,
         bool bypassCooldown = false);
+
+    Task<SyncPlaidTransactionsResponse> SyncLinkedBankForProfileAsync(
+        Guid profileId,
+        Guid linkedBankId,
+        CancellationToken cancellationToken = default,
+        bool bypassCooldown = true);
+
+    Task SyncActiveLinkedBanksAsync(CancellationToken cancellationToken = default);
 }

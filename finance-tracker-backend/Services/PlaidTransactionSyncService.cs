@@ -6,6 +6,7 @@ using finance_tracker_backend.Middleware;
 using finance_tracker_backend.Models;
 using finance_tracker_backend.Repositories;
 using Going.Plaid;
+using Microsoft.Extensions.Configuration;
 using Going.Plaid.Entity;
 using Going.Plaid.Transactions;
 using PlaidTransaction = Going.Plaid.Entity.Transaction;
@@ -14,21 +15,30 @@ namespace finance_tracker_backend.Services;
 
 public sealed class PlaidTransactionSyncService(
     PlaidClient plaidClient,
+    IConfiguration configuration,
     ILinkedBankRepository linkedBankRepository,
     ILinkedBankAccountRepository linkedBankAccountRepository,
     ITransactionRepository transactionRepository,
     PlaidAccessTokenProtector tokenProtector,
     ILogger<PlaidTransactionSyncService> logger) : IPlaidTransactionSyncService
 {
+    private const int DefaultPlaidSyncBatchSize = 200;
+
     private static readonly TimeSpan MinIntervalBetweenSyncs = TimeSpan.FromMinutes(30);
 
-    public async Task<SyncPlaidTransactionsResponse> SyncLinkedBankAsync(
+    public Task<SyncPlaidTransactionsResponse> SyncLinkedBankAsync(
         ClaimsPrincipal user,
         Guid linkedBankId,
         CancellationToken cancellationToken = default,
-        bool bypassCooldown = false)
+        bool bypassCooldown = false) =>
+        SyncLinkedBankForProfileAsync(user.RequireProfileId(), linkedBankId, cancellationToken, bypassCooldown);
+
+    public async Task<SyncPlaidTransactionsResponse> SyncLinkedBankForProfileAsync(
+        Guid profileId,
+        Guid linkedBankId,
+        CancellationToken cancellationToken = default,
+        bool bypassCooldown = true)
     {
-        var profileId = user.RequireProfileId();
         var bank = await linkedBankRepository.GetByIdForProfileAsync(linkedBankId, profileId, cancellationToken)
             .ConfigureAwait(false);
         if (bank is null)
@@ -87,7 +97,8 @@ public sealed class PlaidTransactionSyncService(
                 }
 
                 var detail = response.Error?.ErrorMessage ?? errorCode ?? "Unknown Plaid error";
-                logger.LogWarning("Plaid transactions/sync failed: {Detail} (request_id={RequestId})", detail, response.RequestId);
+                logger.LogWarning("Plaid transactions/sync failed: {Detail} (request_id={RequestId})", detail,
+                    response.RequestId);
                 throw new InvalidOperationException($"Plaid transactions/sync failed: {detail}");
             }
 
@@ -133,6 +144,67 @@ public sealed class PlaidTransactionSyncService(
         };
     }
 
+    public async Task SyncActiveLinkedBanksAsync(CancellationToken cancellationToken = default)
+    {
+        var batchSize = configuration.GetValue("Hangfire:PlaidSyncBatchSize", DefaultPlaidSyncBatchSize);
+        if (batchSize < 1)
+            batchSize = DefaultPlaidSyncBatchSize;
+
+        var afterBankId = Guid.Empty;
+        var ok = 0;
+        var failed = 0;
+        var batches = 0;
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var batch = await linkedBankRepository
+                .ListActiveLinkedBanksAfterIdAsync(afterBankId, batchSize, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (batch.Count == 0)
+                break;
+
+            batches++;
+
+            foreach (var (profileId, linkedBankId) in batch)
+            {
+                try
+                {
+                    await SyncLinkedBankForProfileAsync(profileId, linkedBankId, cancellationToken,
+                            bypassCooldown: true)
+                        .ConfigureAwait(false);
+                    ok++;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    logger.LogWarning(
+                        ex,
+                        "Plaid transaction sync failed for linked_bank {LinkedBankId} profile {ProfileId}; continuing with next bank.",
+                        linkedBankId,
+                        profileId);
+                }
+            }
+
+            afterBankId = batch[^1].LinkedBankId;
+            if (batch.Count < batchSize)
+                break;
+        }
+
+        logger.LogInformation(
+            "Plaid transaction sync job finished: {Ok} ok, {Failed} failed, {Batches} batch(es), batch size {BatchSize}.",
+            ok,
+            failed,
+            batches,
+            batchSize);
+    }
+
     private async Task<(Guid? AccountId, string Status)> ResolveAccountAsync(
         Guid linkedBankId,
         string? plaidAccountId,
@@ -169,7 +241,8 @@ public sealed class PlaidTransactionSyncService(
         var (linkedAccountId, status) = await ResolveAccountAsync(linkedBankId, p.AccountId, cancellationToken)
             .ConfigureAwait(false);
         var now = DateTimeOffset.UtcNow;
-        var existing = await transactionRepository.GetByProfileAndPlaidTransactionIdAsync(profileId, tid, cancellationToken)
+        var existing = await transactionRepository
+            .GetByProfileAndPlaidTransactionIdAsync(profileId, tid, cancellationToken)
             .ConfigureAwait(false);
 
         if (existing is null)
@@ -260,7 +333,7 @@ public sealed class PlaidTransactionSyncService(
             return false;
 
         return errorMessage.Contains("ITEM_LOGIN_REQUIRED", StringComparison.OrdinalIgnoreCase)
-            || errorMessage.Contains("user login is required", StringComparison.OrdinalIgnoreCase)
-            || errorMessage.Contains("update mode", StringComparison.OrdinalIgnoreCase);
+               || errorMessage.Contains("user login is required", StringComparison.OrdinalIgnoreCase)
+               || errorMessage.Contains("update mode", StringComparison.OrdinalIgnoreCase);
     }
 }

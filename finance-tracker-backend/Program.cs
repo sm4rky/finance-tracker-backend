@@ -20,8 +20,9 @@ using Microsoft.IdentityModel.Tokens;
 //   Config: Infrastructure/PlaidConfiguration.cs + appsettings Plaid:*.
 // • Hangfire: PostgreSQL on ConnectionStrings:Default, schema "hangfire"; AddHangfireServer runs workers with the web app.
 //   After Build: IRecurringJobManager → ExpiredPlaidLinkSessionsCleanupJob (Hangfire:ExpiredPlaidLinkSessionsCleanupCron, default 03:00 UTC);
-//   MonthlyNetWorthJob (Hangfire:MonthlyNetWorthCron, default 00:00 UTC on day 1 of each month);
-//   RecurringCashflowPredictedDateAdvanceJob (Hangfire:RecurringCashflowPredictedDateAdvanceCron, default 01:00 UTC; batch Hangfire:RecurringCashflowAdvanceBatchSize; rows with predicted_next_date <= UTC run date, multi-step catch-up per row).
+//   PlaidTransactionSyncJob (Hangfire:PlaidTransactionSyncCron, default 01:00 UTC on day 1; Hangfire:PlaidSyncBatchSize);
+//   MonthlyNetWorthJob (Hangfire:MonthlyNetWorthCron, default 01:45 UTC on day 1 — after Plaid transaction sync);
+//   RecurringCashflowPredictedDateAdvanceJob (Hangfire:RecurringCashflowPredictedDateAdvanceCron, default 01:00 UTC daily; batch Hangfire:RecurringCashflowAdvanceBatchSize; rows with predicted_next_date <= UTC run date, multi-step catch-up per row).
 // • Optional: /hangfire dashboard — add UseHangfireDashboard in Development if you want the UI (not enabled by default).
 
 var builder = WebApplication.CreateBuilder(args);
@@ -130,6 +131,7 @@ builder.Services.AddHangfire(configuration => configuration
         }));
 builder.Services.AddHangfireServer();
 builder.Services.AddTransient<ExpiredPlaidLinkSessionsCleanupJob>();
+builder.Services.AddTransient<PlaidTransactionSyncJob>();
 builder.Services.AddTransient<MonthlyNetWorthJob>();
 builder.Services.AddTransient<RecurringCashflowPredictedDateAdvanceJob>();
 
@@ -191,15 +193,23 @@ await app.Services.GetRequiredService<Supabase.Client>().InitializeAsync();
 
 // Hangfire recurring jobs must be registered after Build (needs IRecurringJobManager from DI).
 var expiredPlaidLinkSessionsCleanupCron =
-    app.Configuration["Hangfire:ExpiredPlaidLinkSessionsCleanupCron"] ?? "0 3 * * *";
+    app.Configuration["Hangfire:ExpiredPlaidLinkSessionsCleanupCron"] ?? "0 4 * * *";
 app.Services.GetRequiredService<IRecurringJobManager>().AddOrUpdate(
     "expired-plaid-link-sessions-cleanup",
     Job.FromExpression<ExpiredPlaidLinkSessionsCleanupJob>(job => job.RunAsync()),
     expiredPlaidLinkSessionsCleanupCron,
     new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
 
+var plaidTransactionSyncCron =
+    app.Configuration["Hangfire:PlaidTransactionSyncCron"] ?? "0 2 1 * *";
+app.Services.GetRequiredService<IRecurringJobManager>().AddOrUpdate(
+    "plaid-transaction-sync",
+    Job.FromExpression<PlaidTransactionSyncJob>(job => job.RunAsync()),
+    plaidTransactionSyncCron,
+    new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+
 var monthlyNetWorthCron =
-    app.Configuration["Hangfire:MonthlyNetWorthCron"] ?? "0 0 1 * *";
+    app.Configuration["Hangfire:MonthlyNetWorthCron"] ?? "0 3 1 * *";
 app.Services.GetRequiredService<IRecurringJobManager>().AddOrUpdate(
     "monthly-net-worth",
     Job.FromExpression<MonthlyNetWorthJob>(job => job.RunAsync()),
