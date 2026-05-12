@@ -30,4 +30,9 @@ public interface IProfileRecurringCashflowRepository
         Guid linkedBankAccountId,
         string status,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ProfileRecurringCashflow>> ListByCalendarDateAsync(
+        DateOnly calendarDate,
+        int limit,
+        CancellationToken cancellationToken = default);
 }

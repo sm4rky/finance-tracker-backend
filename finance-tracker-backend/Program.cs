@@ -20,7 +20,8 @@ using Microsoft.IdentityModel.Tokens;
 //   Config: Infrastructure/PlaidConfiguration.cs + appsettings Plaid:*.
 // • Hangfire: PostgreSQL on ConnectionStrings:Default, schema "hangfire"; AddHangfireServer runs workers with the web app.
 //   After Build: IRecurringJobManager → ExpiredPlaidLinkSessionsCleanupJob (Hangfire:ExpiredPlaidLinkSessionsCleanupCron, default 03:00 UTC);
-//   MonthlyNetWorthJob (Hangfire:MonthlyNetWorthCron, default 00:00 UTC on day 1 of each month).
+//   MonthlyNetWorthJob (Hangfire:MonthlyNetWorthCron, default 00:00 UTC on day 1 of each month);
+//   RecurringCashflowPredictedDateAdvanceJob (Hangfire:RecurringCashflowPredictedDateAdvanceCron, default 01:00 UTC; batch Hangfire:RecurringCashflowAdvanceBatchSize; rows with predicted_next_date <= UTC run date, multi-step catch-up per row).
 // • Optional: /hangfire dashboard — add UseHangfireDashboard in Development if you want the UI (not enabled by default).
 
 var builder = WebApplication.CreateBuilder(args);
@@ -130,6 +131,7 @@ builder.Services.AddHangfire(configuration => configuration
 builder.Services.AddHangfireServer();
 builder.Services.AddTransient<ExpiredPlaidLinkSessionsCleanupJob>();
 builder.Services.AddTransient<MonthlyNetWorthJob>();
+builder.Services.AddTransient<RecurringCashflowPredictedDateAdvanceJob>();
 
 // Repositories
 builder.Services.AddScoped<IProfileRepository, ProfileRepository>();
@@ -171,6 +173,7 @@ builder.Services.AddScoped<IPlaidConnectionService, PlaidConnectionService>();
 builder.Services.AddScoped<IPlaidTransactionSyncService, PlaidTransactionSyncService>();
 builder.Services.AddScoped<IPlaidRecurringCashflowRefreshService, PlaidRecurringCashflowRefreshService>();
 builder.Services.AddScoped<IProfileRecurringCashflowService, ProfileRecurringCashflowService>();
+builder.Services.AddScoped<IRecurringCashflowAdvanceService, RecurringCashflowAdvanceService>();
 builder.Services.AddScoped<ITransactionService, TransactionService>();
 builder.Services.AddScoped<IPlaidFinanceCategoryPrimaryReadService, PlaidFinanceCategoryPrimaryReadService>();
 builder.Services.AddScoped<INetWorthService, NetWorthService>();
@@ -201,6 +204,14 @@ app.Services.GetRequiredService<IRecurringJobManager>().AddOrUpdate(
     "monthly-net-worth",
     Job.FromExpression<MonthlyNetWorthJob>(job => job.RunAsync()),
     monthlyNetWorthCron,
+    new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+
+var recurringCashflowAdvanceCron =
+    app.Configuration["Hangfire:RecurringCashflowPredictedDateAdvanceCron"] ?? "0 1 * * *";
+app.Services.GetRequiredService<IRecurringJobManager>().AddOrUpdate(
+    "recurring-cashflow-predicted-date-advance",
+    Job.FromExpression<RecurringCashflowPredictedDateAdvanceJob>(job => job.RunAsync()),
+    recurringCashflowAdvanceCron,
     new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
 
 if (app.Environment.IsDevelopment())

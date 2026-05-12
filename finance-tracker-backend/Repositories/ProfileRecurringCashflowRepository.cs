@@ -184,6 +184,60 @@ public sealed class ProfileRecurringCashflowRepository(
         return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<IReadOnlyList<ProfileRecurringCashflow>> ListByCalendarDateAsync(
+        DateOnly calendarDate,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        if (limit < 1)
+            throw new ArgumentOutOfRangeException(nameof(limit), limit, "limit must be at least 1.");
+
+        const string sql =
+            """
+            SELECT
+                id,
+                profile_id,
+                plaid_stream_id,
+                linked_bank_account_id,
+                direction,
+                merchant_name,
+                description,
+                pfc_primary,
+                pfc_detailed,
+                frequency,
+                last_amount,
+                expected_amount,
+                expected_amount_user_set,
+                first_date,
+                last_date,
+                predicted_next_date,
+                status,
+                created_at,
+                updated_at
+            FROM profile_recurring_cashflow
+            WHERE predicted_next_date <= @calendar_date
+              AND status IN ('active', 'unlinked')
+              AND frequency <> 'UNKNOWN'
+            ORDER BY predicted_next_date ASC, id ASC
+            LIMIT @limit
+            """;
+
+        await using var conn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+
+        cmd.Parameters.AddWithValue("calendar_date", calendarDate);
+        cmd.Parameters.AddWithValue("limit", limit);
+
+        var list = new List<ProfileRecurringCashflow>();
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            list.Add(MapRow(reader));
+        }
+
+        return list;
+    }
+
     private async Task<NpgsqlConnection> OpenConnectionAsync(CancellationToken cancellationToken)
     {
         var connectionString = configuration.GetConnectionString("Default");
