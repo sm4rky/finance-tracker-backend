@@ -6,7 +6,7 @@ namespace finance_tracker_backend.Services;
 
 /// <summary>Advances recurring rows whose <c>predicted_next_date</c> is on or before the UTC calendar day at execution time (catch-up for missed runs).</summary>
 public sealed class RecurringCashflowAdvanceService(
-    IProfileRecurringCashflowRepository recurringRepository,
+    IProfileRecurringCashflowRepository profileRecurringCashflowRepository,
     IConfiguration configuration,
     ILogger<RecurringCashflowAdvanceService> logger) : IRecurringCashflowAdvanceService
 {
@@ -16,7 +16,7 @@ public sealed class RecurringCashflowAdvanceService(
 
     public async Task AdvancePredictedNextDatesAsync(CancellationToken cancellationToken = default)
     {
-        var asOfUtc = DateOnly.FromDateTime(DateTime.UtcNow);
+        var todayUtc = DateOnly.FromDateTime(DateTime.UtcNow);
 
         var batchSize = configuration.GetValue("Hangfire:RecurringCashflowAdvanceBatchSize", DefaultBatchSize);
         if (batchSize < 1)
@@ -30,8 +30,8 @@ public sealed class RecurringCashflowAdvanceService(
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var batch = await recurringRepository
-                .ListByCalendarDateAsync(asOfUtc, batchSize, cancellationToken)
+            var batch = await profileRecurringCashflowRepository
+                .ListByCalendarDateAsync(todayUtc, batchSize, cancellationToken)
                 .ConfigureAwait(false);
 
             if (batch.Count == 0)
@@ -42,17 +42,17 @@ public sealed class RecurringCashflowAdvanceService(
             foreach (var row in batch)
             {
                 var steps = 0;
-                while (row.PredictedNextDate is { } due && due <= asOfUtc)
+                while (row.PredictedNextDate is { } due && due <= todayUtc)
                 {
                     steps++;
                     if (steps > MaxAdvanceStepsPerRow)
                     {
                         totalSkipped++;
                         logger.LogError(
-                            "Stopped predicted-date advance for recurring row {Id} after {MaxSteps} steps (still due on or before {AsOf}). Check frequency/data.",
+                            "Stopped predicted-date advance for recurring row {Id} after {MaxSteps} steps (still due on or before {TodayUtc}). Check frequency/data.",
                             row.Id,
                             MaxAdvanceStepsPerRow,
-                            asOfUtc);
+                            todayUtc);
                         break;
                     }
 
@@ -70,10 +70,10 @@ public sealed class RecurringCashflowAdvanceService(
                     row.PredictedNextDate = newPredicted;
                     row.UpdatedAt = DateTimeOffset.UtcNow;
 
-                    await recurringRepository.UpdateAsync(row, cancellationToken).ConfigureAwait(false);
+                    await profileRecurringCashflowRepository.UpdateAsync(row, cancellationToken).ConfigureAwait(false);
                     totalUpdated++;
 
-                    if (newPredicted is null || newPredicted > asOfUtc)
+                    if (newPredicted is null || newPredicted > todayUtc)
                         break;
                 }
             }
@@ -83,8 +83,8 @@ public sealed class RecurringCashflowAdvanceService(
         }
 
         logger.LogInformation(
-            "Recurring cashflow predicted-date advance finished for UTC calendar date on or before {AsOfUtc}: {Updated} row updates, {Skipped} skips, {Batches} batch(es).",
-            asOfUtc,
+            "Recurring cashflow predicted-date advance finished for UTC calendar date on or before {TodayUtc}: {Updated} row updates, {Skipped} skips, {Batches} batch(es).",
+            todayUtc,
             totalUpdated,
             totalSkipped,
             batches);

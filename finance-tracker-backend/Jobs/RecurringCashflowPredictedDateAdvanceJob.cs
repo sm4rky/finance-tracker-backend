@@ -12,8 +12,9 @@ public sealed class RecurringCashflowPredictedDateAdvanceJob(
         try
         {
             using var scope = scopeFactory.CreateScope();
-            var service = scope.ServiceProvider.GetRequiredService<IRecurringCashflowAdvanceService>();
-            await service.AdvancePredictedNextDatesAsync().ConfigureAwait(false);
+            var recurringCashflowAdvanceService =
+                scope.ServiceProvider.GetRequiredService<IRecurringCashflowAdvanceService>();
+            await recurringCashflowAdvanceService.AdvancePredictedNextDatesAsync().ConfigureAwait(false);
         }
         catch (Exception ex)
         {

@@ -4,14 +4,19 @@ using finance_tracker_backend.Contracts.Requests;
 using finance_tracker_backend.Contracts.Responses;
 using finance_tracker_backend.Infrastructure;
 using finance_tracker_backend.Repositories;
+using Microsoft.Extensions.Configuration;
 
 namespace finance_tracker_backend.Services;
 
 public sealed class NetWorthService(
+    IConfiguration configuration,
     ILinkedBankRepository linkedBankRepository,
     ILinkedBankAccountRepository linkedBankAccountRepository,
-    IProfileMonthlyNetWorthRepository profileMonthlyNetWorthRepository) : INetWorthService
+    IProfileRepository profileRepository,
+    IProfileMonthlyNetWorthRepository profileMonthlyNetWorthRepository,
+    ILogger<NetWorthService> logger) : INetWorthService
 {
+    private const int DefaultMonthlyNetWorthBatchSize = 200;
     public Task<NetWorthResponse> GetNetWorthAsync(
         ClaimsPrincipal user,
         CancellationToken cancellationToken = default) =>
@@ -118,5 +123,77 @@ public sealed class NetWorthService(
             .ToList();
 
         return new MonthlyNetWorthHistoryResponse { Items = items };
+    }
+
+    public async Task UpsertProfileMonthlyNetWorthForProfilesAsync(CancellationToken cancellationToken = default)
+    {
+        var batchSize = configuration.GetValue("Hangfire:MonthlyNetWorthBatchSize", DefaultMonthlyNetWorthBatchSize);
+        if (batchSize < 1)
+            batchSize = DefaultMonthlyNetWorthBatchSize;
+
+        var periodStart = new DateOnly(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
+        var createdAt = DateTimeOffset.UtcNow;
+
+        var afterProfileId = Guid.Empty;
+        var ok = 0;
+        var failed = 0;
+        var batches = 0;
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var batch = await profileRepository
+                .ListProfileIdsAfterIdAsync(afterProfileId, batchSize, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (batch.Count == 0)
+                break;
+
+            batches++;
+
+            foreach (var profileId in batch)
+            {
+                try
+                {
+                    var nw = await GetNetWorthForProfileAsync(profileId, cancellationToken).ConfigureAwait(false);
+                    await profileMonthlyNetWorthRepository
+                        .UpsertAsync(
+                            profileId,
+                            periodStart,
+                            nw.TotalAssets,
+                            nw.TotalLiabilities,
+                            nw.NetWorth,
+                            createdAt,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    ok++;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    logger.LogError(
+                        ex,
+                        "Monthly net worth upsert failed for profile {ProfileId}; continuing with next profile.",
+                        profileId);
+                }
+            }
+
+            afterProfileId = batch[^1];
+            if (batch.Count < batchSize)
+                break;
+        }
+
+        logger.LogInformation(
+            "Monthly net worth upsert finished for {Period}: {Ok} ok, {Failed} failed, {Batches} batch(es), batch size {BatchSize}.",
+            periodStart,
+            ok,
+            failed,
+            batches,
+            batchSize);
     }
 }

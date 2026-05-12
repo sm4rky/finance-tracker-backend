@@ -19,9 +19,9 @@ using Microsoft.IdentityModel.Tokens;
 // • Plaid: Going.Plaid PlaidClient registered below → IPlaidConnectionService + IPlaidTransactionSyncService → PlaidController (api/Plaid/*).
 //   Config: Infrastructure/PlaidConfiguration.cs + appsettings Plaid:*.
 // • Hangfire: PostgreSQL on ConnectionStrings:Default, schema "hangfire"; AddHangfireServer runs workers with the web app.
-//   After Build: IRecurringJobManager → ExpiredPlaidLinkSessionsCleanupJob (Hangfire:ExpiredPlaidLinkSessionsCleanupCron, default 03:00 UTC);
-//   PlaidTransactionSyncJob (Hangfire:PlaidTransactionSyncCron, default 01:00 UTC on day 1; Hangfire:PlaidSyncBatchSize);
-//   MonthlyNetWorthJob (Hangfire:MonthlyNetWorthCron, default 01:45 UTC on day 1 — after Plaid transaction sync);
+//   After Build: IRecurringJobManager → ExpiredPlaidLinkSessionsCleanupJob (Hangfire:ExpiredPlaidLinkSessionsCleanupCron, default 04:00 UTC);
+//   PlaidTransactionSyncJob (Hangfire:PlaidTransactionSyncCron, default 02:00 UTC on day 1 of the month; Hangfire:PlaidSyncBatchSize);
+//   MonthlyNetWorthJob (Hangfire:MonthlyNetWorthCron, default 03:00 UTC on day 1 of the month; Hangfire:MonthlyNetWorthBatchSize);
 //   RecurringCashflowPredictedDateAdvanceJob (Hangfire:RecurringCashflowPredictedDateAdvanceCron, default 01:00 UTC daily; batch Hangfire:RecurringCashflowAdvanceBatchSize; rows with predicted_next_date <= UTC run date, multi-step catch-up per row).
 // • Optional: /hangfire dashboard — add UseHangfireDashboard in Development if you want the UI (not enabled by default).
 

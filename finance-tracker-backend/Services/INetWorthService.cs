@@ -14,4 +14,6 @@ public interface INetWorthService
         ClaimsPrincipal user,
         MonthlyNetWorthHistoryQueryRequest request,
         CancellationToken cancellationToken = default);
+
+    Task UpsertProfileMonthlyNetWorthForProfilesAsync(CancellationToken cancellationToken = default);
 }

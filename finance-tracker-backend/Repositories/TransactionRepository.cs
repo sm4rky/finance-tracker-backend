@@ -632,25 +632,16 @@ public sealed class TransactionRepository(
 
     private async Task<NpgsqlConnection> OpenConnectionAsync(CancellationToken cancellationToken)
     {
-        var connectionString = GetRequiredConnectionString();
-
-        var conn = new NpgsqlConnection(connectionString);
-        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
-
-        return conn;
-    }
-
-    private string GetRequiredConnectionString()
-    {
         var connectionString = configuration.GetConnectionString("Default");
-
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException(
                 "ConnectionStrings:Default is required for raw transaction queries.");
         }
 
-        return connectionString;
+        var conn = new NpgsqlConnection(connectionString);
+        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        return conn;
     }
 
     private static void ValidatePagedQuery(TransactionQueryFilters query)

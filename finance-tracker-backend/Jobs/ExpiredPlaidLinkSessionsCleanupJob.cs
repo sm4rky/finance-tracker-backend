@@ -9,9 +9,17 @@ public sealed class ExpiredPlaidLinkSessionsCleanupJob(
 {
     public async Task RunAsync()
     {
-        using var scope = scopeFactory.CreateScope();
-        var plaidLinkSessionRepository = scope.ServiceProvider.GetRequiredService<IPlaidLinkSessionRepository>();
-        await plaidLinkSessionRepository.DeleteExpiredAsync().ConfigureAwait(false);
-        logger.LogInformation("Plaid link session cleanup finished (expired rows removed).");
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var plaidLinkSessionRepository = scope.ServiceProvider.GetRequiredService<IPlaidLinkSessionRepository>();
+            await plaidLinkSessionRepository.DeleteExpiredAsync().ConfigureAwait(false);
+            logger.LogInformation("Plaid link session cleanup finished (expired rows removed).");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Plaid link session cleanup job failed.");
+            throw;
+        }
     }
 }

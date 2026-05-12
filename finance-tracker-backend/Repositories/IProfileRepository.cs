@@ -23,4 +23,9 @@ public interface IProfileRepository
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<Guid>> ListAllProfileIdsAsync(CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<Guid>> ListProfileIdsAfterIdAsync(
+        Guid afterProfileId,
+        int limit,
+        CancellationToken cancellationToken = default);
 }
