@@ -3,7 +3,6 @@ namespace finance_tracker_backend.Contracts.Responses;
 public sealed class TransactionResponse
 {
     public Guid Id { get; init; }
-    public Guid? LinkedBankAccountId { get; init; }
     public string? PlaidTransactionId { get; init; }
     public decimal Amount { get; init; }
     public string? IsoCurrencyCode { get; init; }
@@ -19,6 +18,7 @@ public sealed class TransactionResponse
     public string? Website { get; init; }
     public string? LogoUrl { get; init; }
     public string Status { get; init; } = string.Empty;
+    public TransactionLinkedBankAccountResponse? LinkedBankAccount { get; init; }
     public DateTimeOffset? RemovedAt { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset UpdatedAt { get; init; }

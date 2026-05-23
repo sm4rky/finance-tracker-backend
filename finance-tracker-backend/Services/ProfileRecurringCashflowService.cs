@@ -294,7 +294,9 @@ public sealed class ProfileRecurringCashflowService(
         LastDate = row.LastDate,
         PredictedNextDate = row.PredictedNextDate,
         PlaidStreamId = row.PlaidStreamId,
-        LinkedBankAccount = ToLinkedBankAccountResponse(account)
+        LinkedBankAccount = ToLinkedBankAccountResponse(account),
+        CreatedAt = row.CreatedAt,
+        UpdatedAt = row.UpdatedAt
     };
 
     private static RecurringCashflowLinkedBankAccountResponse? ToLinkedBankAccountResponse(LinkedBankAccount? a)
@@ -305,7 +307,8 @@ public sealed class ProfileRecurringCashflowService(
         return new RecurringCashflowLinkedBankAccountResponse
         {
             Id = a.Id,
-            Name = a.AccountName ?? a.OfficialName ?? "Account",
+            AccountName = a.AccountName,
+            OfficialName = a.OfficialName,
             Mask = a.Mask,
             Type = a.Type,
             Subtype = a.Subtype

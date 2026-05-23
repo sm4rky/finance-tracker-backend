@@ -1,6 +1,6 @@
 namespace finance_tracker_backend.Contracts.Responses;
 
-public sealed class RecurringCashflowLinkedBankAccountResponse
+public sealed class TransactionLinkedBankAccountResponse
 {
     public Guid Id { get; init; }
     public string? AccountName { get; init; }

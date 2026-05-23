@@ -8,8 +8,8 @@ namespace finance_tracker_backend.Controllers;
 
 [ApiController]
 [Authorize]
-[Route("api/profile-recurring-cashflows")]
-public sealed class ProfileRecurringCashflowsController(
+[Route("api/profile-recurring-cashflow")]
+public sealed class ProfileRecurringCashflowController(
     IProfileRecurringCashflowService recurringCashflowService,
     IPlaidRecurringCashflowRefreshService plaidRecurringCashflowRefreshService) : ControllerBase
 {

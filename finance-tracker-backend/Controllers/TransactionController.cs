@@ -10,7 +10,7 @@ namespace finance_tracker_backend.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
-public sealed class TransactionsController(ITransactionService transactionService) : ControllerBase
+public sealed class TransactionController(ITransactionService transactionService) : ControllerBase
 {
     [HttpGet]
     [Produces("application/json")]

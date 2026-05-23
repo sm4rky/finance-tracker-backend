@@ -84,7 +84,7 @@ public sealed class TransactionService(
 
         return new PagedResponse<TransactionResponse>
         {
-            Items = rows.Select(ToResponse).ToList(),
+            Items = await MapRowsToResponsesAsync(profileId, rows, cancellationToken).ConfigureAwait(false),
             TotalCount = totalCount,
             Page = page,
             PageSize = pageSize
@@ -107,7 +107,7 @@ public sealed class TransactionService(
         var rows = await transactionRepository
             .ListRecentForProfileAsync(profileId, take, cancellationToken)
             .ConfigureAwait(false);
-        return rows.Select(ToResponse).ToList();
+        return await MapRowsToResponsesAsync(profileId, rows, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<TransactionResponse> CreateAsync(
@@ -141,7 +141,12 @@ public sealed class TransactionService(
         ApplyDraft(row, draft);
 
         await transactionRepository.InsertAsync(row, cancellationToken).ConfigureAwait(false);
-        return ToResponse(row);
+        var accountMap = await LoadAccountMapAsync(
+                profileId,
+                row.LinkedBankAccountId is { } lid ? [lid] : [],
+                cancellationToken)
+            .ConfigureAwait(false);
+        return ToResponse(row, ResolveAccount(row.LinkedBankAccountId, accountMap));
     }
 
     public async Task<TransactionResponse> UpdateAsync(
@@ -172,7 +177,12 @@ public sealed class TransactionService(
         existing.UpdatedAt = DateTimeOffset.UtcNow;
 
         await transactionRepository.UpdateAsync(existing, cancellationToken).ConfigureAwait(false);
-        return ToResponse(existing);
+        var accountMap = await LoadAccountMapAsync(
+                profileId,
+                existing.LinkedBankAccountId is { } lid ? [lid] : [],
+                cancellationToken)
+            .ConfigureAwait(false);
+        return ToResponse(existing, ResolveAccount(existing.LinkedBankAccountId, accountMap));
     }
 
     public async Task<DeleteTransactionsResponse> DeleteManyAsync(
@@ -409,10 +419,56 @@ public sealed class TransactionService(
         throw new ArgumentException("sortDirection must be 'asc' or 'desc'.");
     }
 
-    private static TransactionResponse ToResponse(Transaction transaction) => new()
+    private async Task<IReadOnlyList<TransactionResponse>> MapRowsToResponsesAsync(
+        Guid profileId,
+        IReadOnlyList<Transaction> rows,
+        CancellationToken cancellationToken)
+    {
+        var accountIds = rows
+            .Select(r => r.LinkedBankAccountId)
+            .Where(x => x is not null)
+            .Cast<Guid>()
+            .Distinct()
+            .ToList();
+
+        var accountMap = await LoadAccountMapAsync(profileId, accountIds, cancellationToken).ConfigureAwait(false);
+        return rows
+            .Select(r => ToResponse(r, ResolveAccount(r.LinkedBankAccountId, accountMap)))
+            .ToList();
+    }
+
+    private static LinkedBankAccount? ResolveAccount(Guid? linkedBankAccountId, Dictionary<Guid, LinkedBankAccount> map)
+    {
+        return linkedBankAccountId is null ? null : map.GetValueOrDefault(linkedBankAccountId.Value);
+    }
+
+    private async Task<Dictionary<Guid, LinkedBankAccount>> LoadAccountMapAsync(
+        Guid profileId,
+        IReadOnlyCollection<Guid> accountIds,
+        CancellationToken cancellationToken)
+    {
+        var map = new Dictionary<Guid, LinkedBankAccount>();
+        foreach (var id in accountIds.Distinct())
+        {
+            var linkedBankAccount = await linkedBankAccountRepository.GetByIdAsync(id, cancellationToken).ConfigureAwait(false);
+            if (linkedBankAccount is null)
+                continue;
+
+            var bank = await linkedBankRepository
+                .GetByIdForProfileAsync(linkedBankAccount.LinkedBankId, profileId, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (bank is not null)
+                map[id] = linkedBankAccount;
+        }
+
+        return map;
+    }
+
+    private static TransactionResponse ToResponse(Transaction transaction, LinkedBankAccount? account) => new()
     {
         Id = transaction.Id,
-        LinkedBankAccountId = transaction.LinkedBankAccountId,
+        LinkedBankAccount = ToLinkedBankAccountResponse(account),
         PlaidTransactionId = transaction.PlaidTransactionId,
         Amount = transaction.Amount,
         IsoCurrencyCode = transaction.IsoCurrencyCode,
@@ -432,4 +488,20 @@ public sealed class TransactionService(
         CreatedAt = transaction.CreatedAt,
         UpdatedAt = transaction.UpdatedAt
     };
+
+    private static TransactionLinkedBankAccountResponse? ToLinkedBankAccountResponse(LinkedBankAccount? account)
+    {
+        if (account is null)
+            return null;
+
+        return new TransactionLinkedBankAccountResponse
+        {
+            Id = account.Id,
+            AccountName = account.AccountName,
+            OfficialName = account.OfficialName,
+            Mask = account.Mask,
+            Type = account.Type,
+            Subtype = account.Subtype
+        };
+    }
 }

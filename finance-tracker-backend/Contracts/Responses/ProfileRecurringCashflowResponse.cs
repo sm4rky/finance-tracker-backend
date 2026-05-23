@@ -18,4 +18,6 @@ public sealed class ProfileRecurringCashflowResponse
     public DateOnly? PredictedNextDate { get; init; }
     public string? PlaidStreamId { get; init; }
     public RecurringCashflowLinkedBankAccountResponse? LinkedBankAccount { get; init; }
+    public DateTimeOffset CreatedAt { get; init; }
+    public DateTimeOffset UpdatedAt { get; init; }
 }
