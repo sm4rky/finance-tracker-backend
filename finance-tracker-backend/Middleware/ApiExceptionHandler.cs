@@ -76,6 +76,14 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) : I
             return true;
         }
 
+        if (exception is UnauthorizedAccessException uae)
+        {
+            logger.LogWarning(uae, "Forbidden request");
+            await WriteMessageAsync(httpContext, StatusCodes.Status403Forbidden, uae.Message, cancellationToken)
+                .ConfigureAwait(false);
+            return true;
+        }
+
         if (exception is ArgumentException ae)
         {
             logger.LogWarning(ae, "Bad request");

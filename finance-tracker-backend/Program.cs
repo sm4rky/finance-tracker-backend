@@ -146,6 +146,7 @@ builder.Services.AddScoped<ITransactionRepository, TransactionRepository>();
 builder.Services.AddScoped<IProfileMonthlyNetWorthRepository, ProfileMonthlyNetWorthRepository>();
 builder.Services.AddScoped<IProfileRecurringCashflowRepository, ProfileRecurringCashflowRepository>();
 builder.Services.AddScoped<IPlaidFinanceCategoryPrimaryRepository, PlaidFinanceCategoryPrimaryRepository>();
+builder.Services.AddScoped<IPlanRepository, PlanRepository>();
 
 // Services
 builder.Services.AddHttpClient<IResendTemplateEmailSender, ResendTemplateEmailSender>((sp, client) =>
@@ -183,6 +184,7 @@ builder.Services.AddScoped<ICashflowService, CashflowService>();
 builder.Services.AddScoped<IPfcPrimaryExpenseDistributionService, PfcPrimaryExpenseDistributionService>();
 builder.Services.AddScoped<IStackedExpensesByPfcPrimaryService, StackedExpensesByPfcPrimaryService>();
 builder.Services.AddScoped<IGroupedExpensesByAccountService, GroupedExpensesByAccountService>();
+builder.Services.AddScoped<IPlanService, PlanService>();
 
 var app = builder.Build();
 
