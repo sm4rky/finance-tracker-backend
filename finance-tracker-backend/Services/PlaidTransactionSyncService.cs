@@ -282,7 +282,7 @@ public sealed class PlaidTransactionSyncService(
 
     private static string ComputeNormalizedMerchantFingerprint(PlaidTransaction p)
     {
-        var nameField = p.MerchantName ?? p.OriginalDescription ?? string.Empty;
+        var nameField = p.MerchantName ?? p.Name ?? p.OriginalDescription ?? string.Empty;
         var raw = string.IsNullOrWhiteSpace(p.MerchantName) ? nameField.Trim() : p.MerchantName.Trim();
         raw = Regex.Replace(raw, @"\s+", " ").Trim();
         return raw.ToLowerInvariant();
@@ -302,7 +302,7 @@ public sealed class PlaidTransactionSyncService(
         row.Date = p.Date!.Value;
         row.AuthorizedDate = p.AuthorizedDate;
         row.AuthorizedDatetime = p.AuthorizedDatetime;
-        row.Name = p.MerchantName ?? p.OriginalDescription ?? string.Empty;
+        row.Name = string.IsNullOrWhiteSpace(p.Name) ? null : p.Name.Trim();
         row.MerchantName = string.IsNullOrWhiteSpace(p.MerchantName) ? null : p.MerchantName.Trim();
         row.MerchantEntityId = string.IsNullOrWhiteSpace(p.MerchantEntityId) ? null : p.MerchantEntityId.Trim();
         row.Pending = p.Pending ?? false;
