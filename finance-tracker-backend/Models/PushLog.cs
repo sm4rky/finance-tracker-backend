@@ -3,8 +3,8 @@ using Supabase.Postgrest.Models;
 
 namespace finance_tracker_backend.Models;
 
-[Table("email_logs")]
-public class EmailLog : BaseModel
+[Table("push_logs")]
+public class PushLog : BaseModel
 {
     [PrimaryKey("id", shouldInsert: true)]
     public Guid Id { get; set; }
@@ -12,11 +12,8 @@ public class EmailLog : BaseModel
     [Column("profile_id")]
     public Guid? ProfileId { get; set; }
 
-    [Column("recipient_email")]
-    public string RecipientEmail { get; set; } = string.Empty;
-
-    [Column("template_id")]
-    public string? TemplateId { get; set; }
+    [Column("push_subscription_id")]
+    public Guid? PushSubscriptionId { get; set; }
 
     [Column("dedupe_key")]
     public string? DedupeKey { get; set; }

@@ -157,6 +157,8 @@ builder.Services.AddScoped<IProfileMonthlyNetWorthRepository, ProfileMonthlyNetW
 builder.Services.AddScoped<IProfileRecurringCashflowRepository, ProfileRecurringCashflowRepository>();
 builder.Services.AddScoped<IPlaidFinanceCategoryPrimaryRepository, PlaidFinanceCategoryPrimaryRepository>();
 builder.Services.AddScoped<IPlanRepository, PlanRepository>();
+builder.Services.AddScoped<IProfileNotificationPreferenceRepository, ProfileNotificationPreferenceRepository>();
+builder.Services.AddScoped<IPushSubscriptionRepository, PushSubscriptionRepository>();
 
 // Services
 builder.Services.AddHttpClient<IResendTemplateEmailSender, ResendTemplateEmailSender>((sp, client) =>
@@ -195,6 +197,8 @@ builder.Services.AddScoped<IPfcPrimaryExpenseDistributionService, PfcPrimaryExpe
 builder.Services.AddScoped<IStackedExpensesByPfcPrimaryService, StackedExpensesByPfcPrimaryService>();
 builder.Services.AddScoped<IGroupedExpensesByAccountService, GroupedExpensesByAccountService>();
 builder.Services.AddScoped<IPlanService, PlanService>();
+builder.Services.AddScoped<INotificationPreferenceService, NotificationPreferenceService>();
+builder.Services.AddScoped<IPushSubscriptionService, PushSubscriptionService>();
 
 var app = builder.Build();
 
