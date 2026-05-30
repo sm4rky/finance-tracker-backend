@@ -10,7 +10,6 @@ using Hangfire;
 using Hangfire.Common;
 using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.IdentityModel.Tokens;
 
 // Startup map — where integrations begin:
@@ -96,16 +95,16 @@ builder.Services.AddSingleton(_ => new Supabase.Client(
     }));
 
 // Data protection (for Plaid access tokens). Render should persist keys to a mounted disk.
-var dataProtection = builder.Services
-    .AddDataProtection()
-    .SetApplicationName(builder.Configuration["DataProtection:ApplicationName"] ?? "finance-tracker-backend");
-
-var dataProtectionKeysPath = builder.Configuration["DataProtection:KeysPath"];
-if (!string.IsNullOrWhiteSpace(dataProtectionKeysPath))
-{
-    Directory.CreateDirectory(dataProtectionKeysPath);
-    dataProtection.PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath));
-}
+// var dataProtection = builder.Services
+//     .AddDataProtection()
+//     .SetApplicationName(builder.Configuration["DataProtection:ApplicationName"] ?? "finance-tracker-backend");
+//
+// var dataProtectionKeysPath = builder.Configuration["DataProtection:KeysPath"];
+// if (!string.IsNullOrWhiteSpace(dataProtectionKeysPath))
+// {
+//     Directory.CreateDirectory(dataProtectionKeysPath);
+//     dataProtection.PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath));
+// }
 builder.Services.AddSingleton<PlaidAccessTokenProtector>();
 
 // Plaid API client (singleton). Used only by PlaidConnectionService.
