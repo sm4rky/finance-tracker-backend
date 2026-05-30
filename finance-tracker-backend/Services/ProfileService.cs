@@ -7,7 +7,9 @@ using finance_tracker_backend.Repositories;
 
 namespace finance_tracker_backend.Services;
 
-public sealed partial class ProfileService(IProfileRepository profileRepository) : IProfileService
+public sealed partial class ProfileService(
+    IProfileRepository profileRepository,
+    IProfileNotificationPreferenceRepository notificationPreferenceRepository) : IProfileService
 {
     [GeneratedRegex("^[a-zA-Z0-9._]{8,30}$", RegexOptions.Compiled)]
     private static partial Regex UsernameRegex();
@@ -49,6 +51,7 @@ public sealed partial class ProfileService(IProfileRepository profileRepository)
                 UpdatedAt = now
             },
             cancellationToken).ConfigureAwait(false);
+        await notificationPreferenceRepository.InsertDefaultAsync(userId, cancellationToken).ConfigureAwait(false);
         return true;
     }
 

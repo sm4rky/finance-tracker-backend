@@ -1,5 +1,6 @@
 using finance_tracker_backend.Models;
 using finance_tracker_backend.Repositories;
+using finance_tracker_backend.Infrastructure;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -81,6 +82,7 @@ public sealed class EmailService(
             ProfileId = profileId,
             RecipientEmail = to,
             TemplateId = templateId,
+            DedupeKey = NotificationDedupeKeys.Welcome(),
             Status = success ? "sent" : "failed",
             ProviderMessageId = providerId,
             ErrorMessage = error,

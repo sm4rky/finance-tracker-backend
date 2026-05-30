@@ -10,6 +10,7 @@ using Hangfire;
 using Hangfire.Common;
 using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.IdentityModel.Tokens;
 
 // Startup map — where integrations begin:
@@ -94,8 +95,17 @@ builder.Services.AddSingleton(_ => new Supabase.Client(
         AutoConnectRealtime = false
     }));
 
-// Data protection (for Plaid access tokens).
-builder.Services.AddDataProtection();
+// Data protection (for Plaid access tokens). Render should persist keys to a mounted disk.
+var dataProtection = builder.Services
+    .AddDataProtection()
+    .SetApplicationName(builder.Configuration["DataProtection:ApplicationName"] ?? "finance-tracker-backend");
+
+var dataProtectionKeysPath = builder.Configuration["DataProtection:KeysPath"];
+if (!string.IsNullOrWhiteSpace(dataProtectionKeysPath))
+{
+    Directory.CreateDirectory(dataProtectionKeysPath);
+    dataProtection.PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath));
+}
 builder.Services.AddSingleton<PlaidAccessTokenProtector>();
 
 // Plaid API client (singleton). Used only by PlaidConnectionService.
@@ -147,6 +157,8 @@ builder.Services.AddScoped<IProfileMonthlyNetWorthRepository, ProfileMonthlyNetW
 builder.Services.AddScoped<IProfileRecurringCashflowRepository, ProfileRecurringCashflowRepository>();
 builder.Services.AddScoped<IPlaidFinanceCategoryPrimaryRepository, PlaidFinanceCategoryPrimaryRepository>();
 builder.Services.AddScoped<IPlanRepository, PlanRepository>();
+builder.Services.AddScoped<IProfileNotificationPreferenceRepository, ProfileNotificationPreferenceRepository>();
+builder.Services.AddScoped<IPushSubscriptionRepository, PushSubscriptionRepository>();
 
 // Services
 builder.Services.AddHttpClient<IResendTemplateEmailSender, ResendTemplateEmailSender>((sp, client) =>
@@ -185,6 +197,8 @@ builder.Services.AddScoped<IPfcPrimaryExpenseDistributionService, PfcPrimaryExpe
 builder.Services.AddScoped<IStackedExpensesByPfcPrimaryService, StackedExpensesByPfcPrimaryService>();
 builder.Services.AddScoped<IGroupedExpensesByAccountService, GroupedExpensesByAccountService>();
 builder.Services.AddScoped<IPlanService, PlanService>();
+builder.Services.AddScoped<INotificationPreferenceService, NotificationPreferenceService>();
+builder.Services.AddScoped<IPushSubscriptionService, PushSubscriptionService>();
 
 var app = builder.Build();
 
