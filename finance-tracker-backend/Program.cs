@@ -158,6 +158,9 @@ builder.Services.AddScoped<IPlaidFinanceCategoryPrimaryRepository, PlaidFinanceC
 builder.Services.AddScoped<IPlanRepository, PlanRepository>();
 builder.Services.AddScoped<IProfileNotificationPreferenceRepository, ProfileNotificationPreferenceRepository>();
 builder.Services.AddScoped<IPushSubscriptionRepository, PushSubscriptionRepository>();
+builder.Services.AddScoped<IProfileCustomCategorySetRepository, ProfileCustomCategorySetRepository>();
+builder.Services.AddScoped<IProfileCustomCategoryRepository, ProfileCustomCategoryRepository>();
+builder.Services.AddScoped<IProfileCustomCategoryPfcPrimaryRepository, ProfileCustomCategoryPfcPrimaryRepository>();
 
 // Services
 builder.Services.AddHttpClient<IResendTemplateEmailSender, ResendTemplateEmailSender>((sp, client) =>
@@ -198,6 +201,7 @@ builder.Services.AddScoped<IGroupedExpensesByAccountService, GroupedExpensesByAc
 builder.Services.AddScoped<IPlanService, PlanService>();
 builder.Services.AddScoped<INotificationPreferenceService, NotificationPreferenceService>();
 builder.Services.AddScoped<IPushSubscriptionService, PushSubscriptionService>();
+builder.Services.AddScoped<IProfileCustomCategorySetService, ProfileCustomCategorySetService>();
 
 var app = builder.Build();
 
