@@ -1,6 +1,6 @@
 using finance_tracker_backend.Enums;
 namespace finance_tracker_backend.Types;
-public sealed record TransactionQueryFilters
+public sealed record TransactionsQuery
 {
     public int Offset { get; init; }
     public int Limit { get; init; }

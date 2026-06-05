@@ -12,8 +12,8 @@ namespace finance_tracker_backend.Controllers;
 public sealed class AnalyticsController(
     INetWorthService netWorthService,
     ICashflowService cashflowService,
-    IPfcPrimaryExpenseDistributionService pfcPrimaryExpenseDistributionService,
-    IStackedExpensesByPfcPrimaryService stackedExpensesByPfcPrimaryService,
+    ICategoryExpenseDistributionService categoryExpenseDistributionService,
+    IStackedExpensesByCategoryService stackedExpensesByCategoryService,
     IGroupedExpensesByAccountService groupedExpensesByAccountService)
     : ControllerBase
 {
@@ -55,30 +55,30 @@ public sealed class AnalyticsController(
         return Ok(dto);
     }
 
-    [HttpGet("expense/pfcprimary-distribution")]
+    [HttpGet("expense/category-distribution")]
     [Produces("application/json")]
-    [ProducesResponseType(typeof(PfcPrimaryExpenseDistributionResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(CategoryExpenseDistributionResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<PfcPrimaryExpenseDistributionResponse>> GetPfcPrimaryExpenseDistribution(
+    public async Task<ActionResult<CategoryExpenseDistributionResponse>> GetCategoryExpenseDistribution(
         [FromQuery] TransactionAnalyticsQueryRequest request,
         CancellationToken cancellationToken)
     {
-        var dto = await pfcPrimaryExpenseDistributionService
+        var dto = await categoryExpenseDistributionService
             .GetAsync(User, request, cancellationToken)
             .ConfigureAwait(false);
         return Ok(dto);
     }
 
-    [HttpGet("expense/stacked-by-pfcprimary")]
+    [HttpGet("expense/stacked-by-category")]
     [Produces("application/json")]
-    [ProducesResponseType(typeof(StackedExpensesByPfcPrimaryResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(StackedExpensesByCategoryResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<StackedExpensesByPfcPrimaryResponse>> GetStackedExpensesByPfcPrimary(
-        [FromQuery] StackedExpensesByPfcPrimaryQueryRequest request,
+    public async Task<ActionResult<StackedExpensesByCategoryResponse>> GetStackedExpensesByCategory(
+        [FromQuery] StackedExpensesByCategoryQueryRequest request,
         CancellationToken cancellationToken)
     {
-        var dto = await stackedExpensesByPfcPrimaryService
+        var dto = await stackedExpensesByCategoryService
             .GetAsync(User, request, cancellationToken)
             .ConfigureAwait(false);
         return Ok(dto);

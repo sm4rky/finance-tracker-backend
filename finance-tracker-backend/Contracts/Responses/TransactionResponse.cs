@@ -15,6 +15,7 @@ public sealed class TransactionResponse
     public string? PaymentChannel { get; init; }
     public string? PfcPrimary { get; init; }
     public string? PfcDetailed { get; init; }
+    public ProfileCustomCategoryResponse? CustomCategory { get; init; }
     public string? Website { get; init; }
     public string? LogoUrl { get; init; }
     public string Status { get; init; } = string.Empty;

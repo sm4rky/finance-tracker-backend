@@ -106,6 +106,7 @@ builder.Services.AddSingleton(_ => new Supabase.Client(
 //     dataProtection.PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath));
 // }
 builder.Services.AddSingleton<PlaidAccessTokenProtector>();
+builder.Services.AddScoped<CustomCategorySetHelper>();
 
 // Plaid API client (singleton). Used only by PlaidConnectionService.
 // Secrets/env: Infrastructure/PlaidConfiguration.cs + appsettings Plaid:* (ClientId, Environment, SandboxSecret|ProductionSecret).
@@ -195,8 +196,8 @@ builder.Services.AddScoped<ITransactionService, TransactionService>();
 builder.Services.AddScoped<IPlaidFinanceCategoryPrimaryReadService, PlaidFinanceCategoryPrimaryReadService>();
 builder.Services.AddScoped<INetWorthService, NetWorthService>();
 builder.Services.AddScoped<ICashflowService, CashflowService>();
-builder.Services.AddScoped<IPfcPrimaryExpenseDistributionService, PfcPrimaryExpenseDistributionService>();
-builder.Services.AddScoped<IStackedExpensesByPfcPrimaryService, StackedExpensesByPfcPrimaryService>();
+builder.Services.AddScoped<ICategoryExpenseDistributionService, CategoryExpenseDistributionService>();
+builder.Services.AddScoped<IStackedExpensesByCategoryService, StackedExpensesByCategoryService>();
 builder.Services.AddScoped<IGroupedExpensesByAccountService, GroupedExpensesByAccountService>();
 builder.Services.AddScoped<IPlanService, PlanService>();
 builder.Services.AddScoped<INotificationPreferenceService, NotificationPreferenceService>();

@@ -4,9 +4,9 @@ using finance_tracker_backend.Contracts.Responses;
 
 namespace finance_tracker_backend.Services;
 
-public interface IPfcPrimaryExpenseDistributionService
+public interface ICategoryExpenseDistributionService
 {
-    Task<PfcPrimaryExpenseDistributionResponse> GetAsync(
+    Task<CategoryExpenseDistributionResponse> GetAsync(
         ClaimsPrincipal user,
         TransactionAnalyticsQueryRequest request,
         CancellationToken cancellationToken = default);
