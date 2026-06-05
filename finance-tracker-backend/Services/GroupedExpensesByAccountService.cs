@@ -6,7 +6,9 @@ using finance_tracker_backend.Repositories;
 
 namespace finance_tracker_backend.Services;
 
-public sealed class GroupedExpensesByAccountService(ITransactionRepository transactionRepository)
+public sealed class GroupedExpensesByAccountService(
+    ITransactionRepository transactionRepository,
+    CustomCategorySetHelper customCategorySetHelper)
     : IGroupedExpensesByAccountService
 {
     public async Task<GroupedExpensesByAccountResponse> GetAsync(
@@ -21,15 +23,31 @@ public sealed class GroupedExpensesByAccountService(ITransactionRepository trans
 
         var timeGranularity = AnalyticsTimeGranularityHelper.Parse(request.TimeGranularity);
 
-        var filters = TransactionQueryFilterHelper.CreateForAnalyticsAggregation(request);
-        if (filters.DateFromInclusive is null || filters.DateToInclusive is null)
+        var customCategorySetData = request.CustomCategorySetId is { } customCategorySetId
+            ? await customCategorySetHelper
+                .LoadCustomCategoryByPfcPrimaryAsync(profileId, customCategorySetId, request.CustomCategoryIds, cancellationToken)
+                .ConfigureAwait(false)
+            : null;
+        var customPfcPrimaryList = customCategorySetData is not null && request.CustomCategoryIds is { Count: > 0 }
+            ? customCategorySetData.Keys
+                .Select(pfcPrimary => pfcPrimary.PfcPrimaryCode)
+                .Where(code => !string.IsNullOrWhiteSpace(code))
+                .Distinct(StringComparer.Ordinal)
+                .ToList()
+            : null;
+
+        if (customPfcPrimaryList is not null)
+            request.PfcPrimaryList = customPfcPrimaryList;
+
+        var query = TransactionsQueryHelper.CreateForAnalyticsAggregation(request);
+        if (query.DateFromInclusive is null || query.DateToInclusive is null)
             throw new ArgumentException("dateFrom and dateTo are required.");
 
-        if (filters.DateToInclusive < filters.DateFromInclusive)
+        if (query.DateToInclusive < query.DateFromInclusive)
             throw new ArgumentException("dateTo must be on or after dateFrom.");
 
         var rows = await transactionRepository
-            .GetGroupedExpensesByAccountSeriesAsync(profileId, filters, timeGranularity, cancellationToken)
+            .GetGroupedExpensesByAccountSeriesAsync(profileId, query, timeGranularity, cancellationToken)
             .ConfigureAwait(false);
 
         var accountOrder = SharedAccountOrder(rows);
@@ -43,8 +61,8 @@ public sealed class GroupedExpensesByAccountService(ITransactionRepository trans
         var monthBucketsSpanMultipleYears =
             AnalyticsTimeGranularityHelper.MonthBucketsSpanMultipleYears(periodStartDates);
         var dateRangeSpansMultipleYears = AnalyticsTimeGranularityHelper.DateRangeSpansMultipleYears(
-            filters.DateFromInclusive!.Value,
-            filters.DateToInclusive!.Value);
+            query.DateFromInclusive!.Value,
+            query.DateToInclusive!.Value);
 
         var buckets = grouped
             .Select(g => new GroupedExpensesByAccountBucket

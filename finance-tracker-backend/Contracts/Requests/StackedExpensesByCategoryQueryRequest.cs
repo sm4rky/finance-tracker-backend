@@ -1,6 +1,6 @@
 namespace finance_tracker_backend.Contracts.Requests;
 
-public sealed class StackedExpensesByPfcPrimaryQueryRequest : TransactionAnalyticsQueryRequest
+public sealed class StackedExpensesByCategoryQueryRequest : TransactionAnalyticsQueryRequest
 {
     public string? TimeGranularity { get; set; }
 }

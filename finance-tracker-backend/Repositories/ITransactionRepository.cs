@@ -56,12 +56,12 @@ public interface ITransactionRepository
 
     Task<long> CountAsync(
         Guid profileId,
-        TransactionQueryFilters query,
+        TransactionsQuery query,
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<Transaction>> QueryPagedAsync(
         Guid profileId,
-        TransactionQueryFilters query,
+        TransactionsQuery query,
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<Transaction>> ListRecentForProfileAsync(
@@ -71,25 +71,25 @@ public interface ITransactionRepository
 
     Task<(decimal TotalIncome, decimal TotalExpenses)> SumIncomeAndExpenseAsync(
         Guid profileId,
-        TransactionQueryFilters query,
+        TransactionsQuery query,
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<(string? PfcPrimary, decimal TotalExpenses)>> SumExpensesByPfcPrimaryAsync(
         Guid profileId,
-        TransactionQueryFilters query,
+        TransactionsQuery query,
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<(DateOnly PeriodStartDate, string? PfcPrimary, decimal ExpenseTotal)>>
         GetStackedExpensesByPfcPrimarySeriesAsync(
             Guid profileId,
-            TransactionQueryFilters query,
+            TransactionsQuery query,
             string timeGranularity,
             CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<(DateOnly PeriodStartDate, Guid? LinkedBankAccountId, string? OfficialName, decimal ExpenseTotal)>>
         GetGroupedExpensesByAccountSeriesAsync(
             Guid profileId,
-            TransactionQueryFilters query,
+            TransactionsQuery query,
             string timeGranularity,
             CancellationToken cancellationToken = default);
 }

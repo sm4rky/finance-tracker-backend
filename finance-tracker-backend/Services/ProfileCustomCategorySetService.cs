@@ -148,7 +148,7 @@ public sealed class ProfileCustomCategorySetService(
             foreach (var mapping in pfcPrimaries)
             {
                 var code = TrimRequired(mapping.PfcPrimaryCode, "pfcPrimaryCode is required.").ToUpperInvariant();
-                var version = TrimRequired(mapping.PfcVersion, "pfcVersion is required.").ToLowerInvariant();
+                var version = TrimRequired(mapping.PfcVersion, "pfcVersion is required.").ToUpperInvariant();
                 var key = (code, version);
 
                 if (!mappingKeys.Add(key))
@@ -181,10 +181,11 @@ public sealed class ProfileCustomCategorySetService(
                 .Select(p => (p.Code, p.PfcVersion))
                 .ToHashSet();
 
-            foreach (var key in requestedPfcKeys)
+            foreach (var category in normalizedCategories)
             {
-                if (!validPfcKeys.Contains(key))
-                    throw new ArgumentException($"PFC primary '{key.Code}' with version '{key.Version}' does not exist.");
+                category.PfcPrimaries = category.PfcPrimaries
+                    .Where(p => validPfcKeys.Contains((p.PfcPrimaryCode, p.PfcVersion)))
+                    .ToList();
             }
         }
 
@@ -235,13 +236,15 @@ public sealed class ProfileCustomCategorySetService(
                 g => g
                     .OrderBy(m => m.PfcVersion)
                     .ThenBy(m => m.PfcPrimaryCode)
-                    .Select(MapPfcPrimary)
+                    .Select(CustomCategorySetHelper.ToPfcPrimaryResponse)
                     .ToList());
         var categoriesBySet = orderedCategories
             .GroupBy(c => c.ProfileCustomCategorySetId)
             .ToDictionary(
                 g => g.Key,
-                g => g.Select(c => MapCategory(c, mappingsByCategory.GetValueOrDefault(c.Id) ?? [])).ToList());
+                g => g.Select(c => CustomCategorySetHelper.ToCustomCategoryResponse(
+                    c,
+                    mappingsByCategory.GetValueOrDefault(c.Id) ?? [])).ToList());
 
         return orderedSets.Select(s => new ProfileCustomCategorySetResponse
         {
@@ -252,25 +255,6 @@ public sealed class ProfileCustomCategorySetService(
             Categories = categoriesBySet.GetValueOrDefault(s.Id) ?? []
         }).ToList();
     }
-
-    private static ProfileCustomCategoryResponse MapCategory(
-        ProfileCustomCategory category,
-        IReadOnlyList<ProfileCustomCategoryPfcPrimaryResponse> pfcPrimaries) => new()
-    {
-        Id = category.Id,
-        Name = category.Name,
-        ColorSet = category.ColorSet,
-        IconName = category.IconName,
-        PfcPrimaries = pfcPrimaries
-    };
-
-    private static ProfileCustomCategoryPfcPrimaryResponse MapPfcPrimary(
-        ProfileCustomCategoryPfcPrimary mapping) => new()
-    {
-        Id = mapping.Id,
-        PfcPrimaryCode = mapping.PfcPrimaryCode,
-        PfcVersion = mapping.PfcVersion
-    };
 
     private static string TrimRequired(string? value, string message)
     {
@@ -289,7 +273,7 @@ public sealed class ProfileCustomCategorySetService(
         public string Name { get; init; } = string.Empty;
         public string ColorSet { get; init; } = string.Empty;
         public string IconName { get; init; } = string.Empty;
-        public IReadOnlyList<NormalizedProfileCustomCategoryPfcPrimary> PfcPrimaries { get; init; } = [];
+        public IReadOnlyList<NormalizedProfileCustomCategoryPfcPrimary> PfcPrimaries { get; set; } = [];
     }
 
     private sealed class NormalizedProfileCustomCategoryPfcPrimary

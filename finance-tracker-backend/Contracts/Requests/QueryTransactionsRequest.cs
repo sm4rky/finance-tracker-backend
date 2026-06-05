@@ -1,5 +1,3 @@
-using System.ComponentModel;
-
 namespace finance_tracker_backend.Contracts.Requests;
 
 public sealed class QueryTransactionsRequest
@@ -11,6 +9,8 @@ public sealed class QueryTransactionsRequest
     public List<Guid>? AccountIds { get; set; }
     public bool? IncludeUnlinkedTransactions { get; set; }
     public List<string>? PfcPrimaryList { get; set; }
+    public Guid? CustomCategorySetId { get; set; }
+    public List<Guid>? CustomCategoryIds { get; set; }
     public List<string>? PaymentChannels { get; set; }
     public bool? Pending { get; set; }
     public string? DateFrom { get; set; }

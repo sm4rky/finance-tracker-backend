@@ -14,37 +14,11 @@ namespace finance_tracker_backend.Services;
 public sealed class TransactionService(
     ITransactionRepository transactionRepository,
     ILinkedBankAccountRepository linkedBankAccountRepository,
-    ILinkedBankRepository linkedBankRepository) : ITransactionService
+    ILinkedBankRepository linkedBankRepository,
+    CustomCategorySetHelper customCategorySetHelper) : ITransactionService
 {
     private const string IsoCurrencyCodeUsd = "USD";
-    private const string PfcVersionDefault = "V2";
     private const int MaxDeleteTransactionBatchSize = 100;
-
-    private sealed record TransactionDraft(
-        Guid? LinkedBankAccountId,
-        decimal Amount,
-        DateOnly Date,
-        string Name,
-        string? MerchantName,
-        bool Pending,
-        string? PaymentChannel,
-        string? PfcPrimary,
-        string? PfcDetailed,
-        string? Website,
-        string Status);
-
-    private static readonly Dictionary<string, TransactionSortField> SortByFromQuery =
-        new(StringComparer.OrdinalIgnoreCase)
-        {
-            ["merchantName"] = TransactionSortField.MerchantName,
-            ["linkedBankAccountId"] = TransactionSortField.LinkedBankAccountId,
-            ["pfcPrimary"] = TransactionSortField.PfcPrimary,
-            ["pfcDetailed"] = TransactionSortField.PfcDetailed,
-            ["date"] = TransactionSortField.Date,
-            ["amount"] = TransactionSortField.Amount,
-            ["paymentChannel"] = TransactionSortField.PaymentChannel,
-            ["pending"] = TransactionSortField.Pending
-        };
 
     public async Task<PagedResponse<TransactionResponse>> QueryAsync(
         ClaimsPrincipal user,
@@ -62,17 +36,25 @@ public sealed class TransactionService(
         var page = request.Page.Value;
         var pageSize = request.Limit.Value;
 
-        var sortBy = string.IsNullOrWhiteSpace(request.SortBy)
-            ? TransactionSortField.Date
-            : ParseSortByFromQuery(request.SortBy);
+        var customCategorySetData = request.CustomCategorySetId is { } customCategorySetId
+            ? await customCategorySetHelper
+                .LoadCustomCategoryByPfcPrimaryAsync(profileId, customCategorySetId, request.CustomCategoryIds,
+                    cancellationToken)
+                .ConfigureAwait(false)
+            : null;
 
-        var descending = string.IsNullOrWhiteSpace(request.SortDirection)
-                         || ParseSortDirectionOrThrow(request.SortDirection.Trim());
+        var customPfcPrimaryList = customCategorySetData is not null && request.CustomCategoryIds is { Count: > 0 }
+            ? customCategorySetData.Keys
+                .Select(pfcPrimary => pfcPrimary.PfcPrimaryCode)
+                .Where(code => !string.IsNullOrWhiteSpace(code))
+                .Distinct(StringComparer.Ordinal)
+                .ToList()
+            : null;
 
-        if (TryEmptyPageIfFromAfterTo(request, page, pageSize, out var emptyPage))
-            return emptyPage!;
+        if (customPfcPrimaryList is not null)
+            request.PfcPrimaryList = customPfcPrimaryList;
 
-        var query = BuildTransactionQuery(request, page, pageSize, sortBy, descending);
+        var query = TransactionsQueryHelper.CreateForPagedTransactionsQuery(request);
 
         var totalCount = await transactionRepository
             .CountAsync(profileId, query, cancellationToken)
@@ -82,9 +64,24 @@ public sealed class TransactionService(
             .QueryPagedAsync(profileId, query, cancellationToken)
             .ConfigureAwait(false);
 
+        var accountIds = rows
+            .Select(row => row.LinkedBankAccountId)
+            .Where(linkedBankAccountId => linkedBankAccountId is not null)
+            .Cast<Guid>()
+            .Distinct()
+            .ToList();
+        var accountMap = await LoadAccountMapAsync(profileId, accountIds, cancellationToken).ConfigureAwait(false);
+
         return new PagedResponse<TransactionResponse>
         {
-            Items = await MapRowsToResponsesAsync(profileId, rows, cancellationToken).ConfigureAwait(false),
+            Items = rows
+                .Select(row => ToTransactionResponse(
+                    row,
+                    row.LinkedBankAccountId is { } linkedBankAccountId
+                        ? accountMap.GetValueOrDefault(linkedBankAccountId)
+                        : null,
+                    customCategorySetData))
+                .ToList(),
             TotalCount = totalCount,
             Page = page,
             PageSize = pageSize
@@ -107,7 +104,23 @@ public sealed class TransactionService(
         var rows = await transactionRepository
             .ListRecentForProfileAsync(profileId, take, cancellationToken)
             .ConfigureAwait(false);
-        return await MapRowsToResponsesAsync(profileId, rows, cancellationToken).ConfigureAwait(false);
+
+        var accountIds = rows
+            .Select(row => row.LinkedBankAccountId)
+            .Where(linkedBankAccountId => linkedBankAccountId is not null)
+            .Cast<Guid>()
+            .Distinct()
+            .ToList();
+        var accountMap = await LoadAccountMapAsync(profileId, accountIds, cancellationToken).ConfigureAwait(false);
+
+        return rows
+            .Select(row => ToTransactionResponse(
+                row,
+                row.LinkedBankAccountId is { } linkedBankAccountId
+                    ? accountMap.GetValueOrDefault(linkedBankAccountId)
+                    : null,
+                customCategoryByPfcPrimary: null))
+            .ToList();
     }
 
     public async Task<TransactionResponse> CreateAsync(
@@ -116,37 +129,51 @@ public sealed class TransactionService(
         CancellationToken cancellationToken = default)
     {
         var profileId = user.RequireProfileId();
-        var draft = await BuildDraftAsync(profileId, request, cancellationToken).ConfigureAwait(false);
+        var linkedBankAccountId = await EnsureLinkedBankAccountBelongsToProfileAsync(
+                profileId,
+                request.LinkedBankAccountId,
+                cancellationToken)
+            .ConfigureAwait(false);
 
+        if (request.Amount < 0)
+            throw new ArgumentException("amount must be greater than or equal to 0.");
+
+        var amountFlow = TransactionsQueryHelper.ParseTransactionFlow(request.AmountFlow);
+        var amount = Math.Abs(request.Amount) * (amountFlow == TransactionFlow.Income ? -1 : 1);
+        var merchantName = string.IsNullOrWhiteSpace(request.MerchantName) ? null : request.MerchantName.Trim();
         var now = DateTimeOffset.UtcNow;
         var row = new Transaction
         {
             Id = Guid.NewGuid(),
             ProfileId = profileId,
+            LinkedBankAccountId = linkedBankAccountId,
             PlaidTransactionId = null,
+            Amount = amount,
             IsoCurrencyCode = IsoCurrencyCodeUsd,
+            Date = ParseAndValidateDate(request.Date),
             AuthorizedDate = null,
             AuthorizedDatetime = null,
             MerchantEntityId = null,
             PendingTransactionId = null,
             TransactionType = null,
             PfcConfidenceLevel = null,
-            PfcVersion = PfcVersionDefault,
+            PfcVersion = CustomCategorySetHelper.PfcVersion,
+            Name = merchantName ?? "",
+            MerchantName = merchantName,
+            Pending = request.Pending,
+            PaymentChannel = string.IsNullOrWhiteSpace(request.PaymentChannel) ? null : request.PaymentChannel.Trim(),
+            PfcPrimary = NormalizePfcPrimaryOrNull(request.PfcPrimary),
+            PfcDetailed = string.IsNullOrWhiteSpace(request.PfcDetailed) ? null : request.PfcDetailed.Trim(),
+            Website = string.IsNullOrWhiteSpace(request.Website) ? null : request.Website.Trim(),
             LogoUrl = null,
+            Status = ParseAndValidateStatus(request.Status),
             RemovedAt = null,
             CreatedAt = now,
             UpdatedAt = now
         };
 
-        ApplyDraft(row, draft);
-
         await transactionRepository.InsertAsync(row, cancellationToken).ConfigureAwait(false);
-        var accountMap = await LoadAccountMapAsync(
-                profileId,
-                row.LinkedBankAccountId is { } lid ? [lid] : [],
-                cancellationToken)
-            .ConfigureAwait(false);
-        return ToResponse(row, ResolveAccount(row.LinkedBankAccountId, accountMap));
+        return ToTransactionResponse(row, account: null, customCategoryByPfcPrimary: null);
     }
 
     public async Task<TransactionResponse> UpdateAsync(
@@ -167,9 +194,33 @@ public sealed class TransactionService(
         if (existing.RemovedAt is not null)
             throw new ArgumentException("Removed transactions cannot be edited.");
 
-        var draft = await BuildDraftAsync(profileId, request, cancellationToken).ConfigureAwait(false);
+        var linkedBankAccountId = await EnsureLinkedBankAccountBelongsToProfileAsync(
+                profileId,
+                request.LinkedBankAccountId,
+                cancellationToken)
+            .ConfigureAwait(false);
 
-        ApplyDraft(existing, draft);
+        if (request.Amount < 0)
+            throw new ArgumentException("amount must be greater than or equal to 0.");
+
+        var amountFlow = TransactionsQueryHelper.ParseTransactionFlow(request.AmountFlow);
+        var amount = Math.Abs(request.Amount) * (amountFlow == TransactionFlow.Income ? -1 : 1);
+        var merchantName = string.IsNullOrWhiteSpace(request.MerchantName) ? null : request.MerchantName.Trim();
+
+        existing.LinkedBankAccountId = linkedBankAccountId;
+        existing.Amount = amount;
+        existing.IsoCurrencyCode = IsoCurrencyCodeUsd;
+        existing.Date = ParseAndValidateDate(request.Date);
+        existing.Name = merchantName ?? "";
+        existing.MerchantName = merchantName;
+        existing.Pending = request.Pending;
+        existing.PaymentChannel =
+            string.IsNullOrWhiteSpace(request.PaymentChannel) ? null : request.PaymentChannel.Trim();
+        existing.PfcPrimary = NormalizePfcPrimaryOrNull(request.PfcPrimary);
+        existing.PfcDetailed = string.IsNullOrWhiteSpace(request.PfcDetailed) ? null : request.PfcDetailed.Trim();
+        existing.Website = string.IsNullOrWhiteSpace(request.Website) ? null : request.Website.Trim();
+        existing.Status = ParseAndValidateStatus(request.Status);
+        existing.PfcVersion = CustomCategorySetHelper.PfcVersion;
 
         if (request.ClearLogo)
             existing.LogoUrl = null;
@@ -177,12 +228,7 @@ public sealed class TransactionService(
         existing.UpdatedAt = DateTimeOffset.UtcNow;
 
         await transactionRepository.UpdateAsync(existing, cancellationToken).ConfigureAwait(false);
-        var accountMap = await LoadAccountMapAsync(
-                profileId,
-                existing.LinkedBankAccountId is { } lid ? [lid] : [],
-                cancellationToken)
-            .ConfigureAwait(false);
-        return ToResponse(existing, ResolveAccount(existing.LinkedBankAccountId, accountMap));
+        return ToTransactionResponse(existing, account: null, customCategoryByPfcPrimary: null);
     }
 
     public async Task<DeleteTransactionsResponse> DeleteManyAsync(
@@ -214,54 +260,6 @@ public sealed class TransactionService(
         }
     }
 
-    private async Task<TransactionDraft> BuildDraftAsync(
-        Guid profileId,
-        SaveTransactionRequest request,
-        CancellationToken cancellationToken)
-    {
-        var linkedBankAccountId = await EnsureLinkedBankAccountBelongsToProfileAsync(
-                profileId,
-                request.LinkedBankAccountId,
-                cancellationToken)
-            .ConfigureAwait(false);
-
-        if (request.Amount < 0)
-            throw new ArgumentException("amount must be greater than or equal to 0.");
-
-        var amountFlow = TransactionQueryFilterHelper.ParseAndValidateAmountFlow(request.AmountFlow);
-        var merchantName = TrimToNull(request.MerchantName);
-
-        return new TransactionDraft(
-            LinkedBankAccountId: linkedBankAccountId,
-            Amount: ApplyAmountFlowSign(request.Amount, amountFlow),
-            Date: ParseAndValidateDate(request.Date),
-            Name: merchantName ?? "",
-            MerchantName: merchantName,
-            Pending: request.Pending,
-            PaymentChannel: TrimToNull(request.PaymentChannel),
-            PfcPrimary: NormalizePfcPrimaryOrNull(request.PfcPrimary),
-            PfcDetailed: TrimToNull(request.PfcDetailed),
-            Website: TrimToNull(request.Website),
-            Status: ParseAndValidateStatus(request.Status));
-    }
-
-    private static void ApplyDraft(Transaction transaction, TransactionDraft draft)
-    {
-        transaction.LinkedBankAccountId = draft.LinkedBankAccountId;
-        transaction.Amount = draft.Amount;
-        transaction.IsoCurrencyCode = IsoCurrencyCodeUsd;
-        transaction.Date = draft.Date;
-        transaction.Name = draft.Name;
-        transaction.MerchantName = draft.MerchantName;
-        transaction.Pending = draft.Pending;
-        transaction.PaymentChannel = draft.PaymentChannel;
-        transaction.PfcPrimary = draft.PfcPrimary;
-        transaction.PfcDetailed = draft.PfcDetailed;
-        transaction.Website = draft.Website;
-        transaction.Status = draft.Status;
-        transaction.PfcVersion = PfcVersionDefault;
-    }
-
     private async Task<Guid?> EnsureLinkedBankAccountBelongsToProfileAsync(
         Guid profileId,
         Guid? linkedBankAccountId,
@@ -281,14 +279,10 @@ public sealed class TransactionService(
             .GetByIdForProfileAsync(account.LinkedBankId, profileId, cancellationToken)
             .ConfigureAwait(false);
 
-        if (bank is null)
-            throw new ArgumentException("Linked bank account does not belong to your profile.");
-
-        return account.Id;
+        return bank is null
+            ? throw new ArgumentException("Linked bank account does not belong to your profile.")
+            : account.Id;
     }
-
-    private static string? TrimToNull(string? value)
-        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static string ParseAndValidateStatus(string? raw)
     {
@@ -306,12 +300,6 @@ public sealed class TransactionService(
         throw new ArgumentException("status must be 'active' or 'account_opted_out'.");
     }
 
-    private static decimal ApplyAmountFlowSign(decimal amount, TransactionFlow flow)
-    {
-        var absoluteAmount = Math.Abs(amount);
-        return flow == TransactionFlow.Income ? -absoluteAmount : absoluteAmount;
-    }
-
     private static DateOnly ParseAndValidateDate(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw))
@@ -327,119 +315,19 @@ public sealed class TransactionService(
         }
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        if (date > today)
-            throw new ArgumentException("date cannot be in the future.");
-
-        return date;
+        return date > today ? throw new ArgumentException("date cannot be in the future.") : date;
     }
 
     private static string? NormalizePfcPrimaryOrNull(string? raw)
     {
-        var value = TrimToNull(raw);
+        var value = string.IsNullOrWhiteSpace(raw) ? null : raw.Trim();
         if (value is null)
             return null;
 
-        return string.Equals(value, TransactionQueryFilterHelper.PfcPrimaryUncategorizedQueryValue,
+        return string.Equals(value, TransactionsQueryHelper.PfcPrimaryUncategorizedQueryValue,
             StringComparison.OrdinalIgnoreCase)
             ? null
             : value;
-    }
-
-    private static bool TryEmptyPageIfFromAfterTo(
-        QueryTransactionsRequest request,
-        int page,
-        int pageSize,
-        out PagedResponse<TransactionResponse>? emptyPage)
-    {
-        emptyPage = null;
-
-        if (string.IsNullOrWhiteSpace(request.DateFrom) || string.IsNullOrWhiteSpace(request.DateTo))
-            return false;
-
-        if (!DateOnly.TryParse(
-                request.DateFrom.Trim(),
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.None,
-                out var df))
-            return false;
-
-        if (!DateOnly.TryParse(
-                request.DateTo.Trim(),
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.None,
-                out var dt))
-            return false;
-
-        var todayUtc = DateOnly.FromDateTime(DateTime.UtcNow);
-        if (df > todayUtc)
-            throw new ArgumentException("dateFrom cannot be in the future.");
-        if (dt > todayUtc)
-            throw new ArgumentException("dateTo cannot be in the future.");
-
-        if (df <= dt)
-            return false;
-
-        emptyPage = new PagedResponse<TransactionResponse>
-        {
-            Items = [],
-            TotalCount = 0,
-            Page = page,
-            PageSize = pageSize
-        };
-        return true;
-    }
-
-    private static TransactionQueryFilters BuildTransactionQuery(
-        QueryTransactionsRequest request,
-        int page,
-        int pageSize,
-        TransactionSortField sortBy,
-        bool descending) =>
-        TransactionQueryFilterHelper.CreateForPagedQuery(request, page, pageSize, sortBy, descending);
-
-    private static TransactionSortField ParseSortByFromQuery(string raw)
-    {
-        if (!SortByFromQuery.TryGetValue(raw.Trim(), out var field))
-        {
-            throw new ArgumentException(
-                $"Invalid sortBy '{raw}'. Allowed values: {string.Join(", ", SortByFromQuery.Keys.Order(StringComparer.Ordinal))}.");
-        }
-
-        return field;
-    }
-
-    private static bool ParseSortDirectionOrThrow(string raw)
-    {
-        if (raw.Equals("asc", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        if (raw.Equals("desc", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        throw new ArgumentException("sortDirection must be 'asc' or 'desc'.");
-    }
-
-    private async Task<IReadOnlyList<TransactionResponse>> MapRowsToResponsesAsync(
-        Guid profileId,
-        IReadOnlyList<Transaction> rows,
-        CancellationToken cancellationToken)
-    {
-        var accountIds = rows
-            .Select(r => r.LinkedBankAccountId)
-            .Where(x => x is not null)
-            .Cast<Guid>()
-            .Distinct()
-            .ToList();
-
-        var accountMap = await LoadAccountMapAsync(profileId, accountIds, cancellationToken).ConfigureAwait(false);
-        return rows
-            .Select(r => ToResponse(r, ResolveAccount(r.LinkedBankAccountId, accountMap)))
-            .ToList();
-    }
-
-    private static LinkedBankAccount? ResolveAccount(Guid? linkedBankAccountId, Dictionary<Guid, LinkedBankAccount> map)
-    {
-        return linkedBankAccountId is null ? null : map.GetValueOrDefault(linkedBankAccountId.Value);
     }
 
     private async Task<Dictionary<Guid, LinkedBankAccount>> LoadAccountMapAsync(
@@ -450,7 +338,8 @@ public sealed class TransactionService(
         var map = new Dictionary<Guid, LinkedBankAccount>();
         foreach (var id in accountIds.Distinct())
         {
-            var linkedBankAccount = await linkedBankAccountRepository.GetByIdAsync(id, cancellationToken).ConfigureAwait(false);
+            var linkedBankAccount =
+                await linkedBankAccountRepository.GetByIdAsync(id, cancellationToken).ConfigureAwait(false);
             if (linkedBankAccount is null)
                 continue;
 
@@ -465,7 +354,11 @@ public sealed class TransactionService(
         return map;
     }
 
-    private static TransactionResponse ToResponse(Transaction transaction, LinkedBankAccount? account) => new()
+    private static TransactionResponse ToTransactionResponse(
+        Transaction transaction,
+        LinkedBankAccount? account,
+        IReadOnlyDictionary<ProfileCustomCategoryPfcPrimary, ProfileCustomCategoryResponse>?
+            customCategoryByPfcPrimary) => new()
     {
         Id = transaction.Id,
         LinkedBankAccount = ToLinkedBankAccountResponse(account),
@@ -481,6 +374,12 @@ public sealed class TransactionService(
         PaymentChannel = transaction.PaymentChannel,
         PfcPrimary = transaction.PfcPrimary,
         PfcDetailed = transaction.PfcDetailed,
+        CustomCategory = customCategoryByPfcPrimary is null || string.IsNullOrWhiteSpace(transaction.PfcPrimary)
+            ? null
+            : CustomCategorySetHelper.GetCustomCategoryResponseByPfcPrimaryCodeAndPfcVersion(
+                customCategoryByPfcPrimary,
+                transaction.PfcPrimary,
+                transaction.PfcVersion),
         Website = transaction.Website,
         LogoUrl = transaction.LogoUrl,
         Status = transaction.Status,

@@ -4,10 +4,10 @@ using finance_tracker_backend.Contracts.Responses;
 
 namespace finance_tracker_backend.Services;
 
-public interface IStackedExpensesByPfcPrimaryService
+public interface IStackedExpensesByCategoryService
 {
-    Task<StackedExpensesByPfcPrimaryResponse> GetAsync(
+    Task<StackedExpensesByCategoryResponse> GetAsync(
         ClaimsPrincipal user,
-        StackedExpensesByPfcPrimaryQueryRequest request,
+        StackedExpensesByCategoryQueryRequest request,
         CancellationToken cancellationToken = default);
 }

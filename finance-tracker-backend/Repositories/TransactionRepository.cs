@@ -284,7 +284,7 @@ public sealed class TransactionRepository(
 
     public async Task<long> CountAsync(
         Guid profileId,
-        TransactionQueryFilters query,
+        TransactionsQuery query,
         CancellationToken cancellationToken = default)
     {
         ValidateFilters(query);
@@ -314,7 +314,7 @@ public sealed class TransactionRepository(
 
     public async Task<IReadOnlyList<Transaction>> QueryPagedAsync(
         Guid profileId,
-        TransactionQueryFilters query,
+        TransactionsQuery query,
         CancellationToken cancellationToken = default)
     {
         ValidatePagedQuery(query);
@@ -442,7 +442,7 @@ public sealed class TransactionRepository(
 
     public async Task<(decimal TotalIncome, decimal TotalExpenses)> SumIncomeAndExpenseAsync(
         Guid profileId,
-        TransactionQueryFilters query,
+        TransactionsQuery query,
         CancellationToken cancellationToken = default)
     {
         ValidateFilters(query);
@@ -476,7 +476,7 @@ public sealed class TransactionRepository(
 
     public async Task<IReadOnlyList<(string? PfcPrimary, decimal TotalExpenses)>> SumExpensesByPfcPrimaryAsync(
         Guid profileId,
-        TransactionQueryFilters query,
+        TransactionsQuery query,
         CancellationToken cancellationToken = default)
     {
         ValidateFilters(query);
@@ -524,7 +524,7 @@ public sealed class TransactionRepository(
     public async Task<IReadOnlyList<(DateOnly PeriodStartDate, string? PfcPrimary, decimal ExpenseTotal)>>
         GetStackedExpensesByPfcPrimarySeriesAsync(
             Guid profileId,
-            TransactionQueryFilters query,
+            TransactionsQuery query,
             string timeGranularity,
             CancellationToken cancellationToken = default)
     {
@@ -577,7 +577,7 @@ public sealed class TransactionRepository(
     public async Task<IReadOnlyList<(DateOnly PeriodStartDate, Guid? LinkedBankAccountId, string? OfficialName, decimal ExpenseTotal)>>
         GetGroupedExpensesByAccountSeriesAsync(
             Guid profileId,
-            TransactionQueryFilters query,
+            TransactionsQuery query,
             string timeGranularity,
             CancellationToken cancellationToken = default)
     {
@@ -644,7 +644,7 @@ public sealed class TransactionRepository(
         return conn;
     }
 
-    private static void ValidatePagedQuery(TransactionQueryFilters query)
+    private static void ValidatePagedQuery(TransactionsQuery query)
     {
         ArgumentNullException.ThrowIfNull(query);
 
@@ -661,33 +661,9 @@ public sealed class TransactionRepository(
         ValidateFilters(query);
     }
 
-    private static void ValidateFilters(TransactionQueryFilters query)
+    private static void ValidateFilters(TransactionsQuery query)
     {
         ArgumentNullException.ThrowIfNull(query);
-
-        if (query.DateFromInclusive is { } from &&
-            query.DateToInclusive is { } to &&
-            from > to)
-        {
-            throw new ArgumentException("DateFromInclusive cannot be greater than DateToInclusive.");
-        }
-
-        if (query.AbsAmountMin is < 0)
-        {
-            throw new ArgumentException("AbsAmountMin must be non-negative.");
-        }
-
-        if (query.AbsAmountMax is < 0)
-        {
-            throw new ArgumentException("AbsAmountMax must be non-negative.");
-        }
-
-        if (query.AbsAmountMin is { } min &&
-            query.AbsAmountMax is { } max &&
-            min > max)
-        {
-            throw new ArgumentException("AbsAmountMin cannot be greater than AbsAmountMax.");
-        }
     }
 
     private static string ToDateTruncUnitLiteral(string timeGranularity) =>
@@ -703,7 +679,7 @@ public sealed class TransactionRepository(
     private static void AppendFilters(
         NpgsqlCommand cmd,
         StringBuilder sql,
-        TransactionQueryFilters filters)
+        TransactionsQuery filters)
     {
         AppendAccountFilter(cmd, sql, filters);
         AppendPfcPrimaryFilter(cmd, sql, filters);
@@ -717,7 +693,7 @@ public sealed class TransactionRepository(
     private static void AppendAccountFilter(
         NpgsqlCommand cmd,
         StringBuilder sql,
-        TransactionQueryFilters filters)
+        TransactionsQuery filters)
     {
         var accountIds = filters.AccountIds
             .Distinct()
@@ -760,7 +736,7 @@ public sealed class TransactionRepository(
     private static void AppendPfcPrimaryFilter(
         NpgsqlCommand cmd,
         StringBuilder sql,
-        TransactionQueryFilters filters)
+        TransactionsQuery filters)
     {
         var hasPfcPrimaryList = filters.PfcPrimaryList.Count > 0;
         var includeUncategorized = filters.IncludePfcUncategorized;
@@ -801,7 +777,7 @@ public sealed class TransactionRepository(
     private static void AppendPaymentChannelFilter(
         NpgsqlCommand cmd,
         StringBuilder sql,
-        TransactionQueryFilters filters)
+        TransactionsQuery filters)
     {
         if (filters.PaymentChannels.Count == 0)
         {
@@ -822,7 +798,7 @@ public sealed class TransactionRepository(
     private static void AppendPendingFilter(
         NpgsqlCommand cmd,
         StringBuilder sql,
-        TransactionQueryFilters filters)
+        TransactionsQuery filters)
     {
         if (filters.Pending is not { } pending)
         {
@@ -836,7 +812,7 @@ public sealed class TransactionRepository(
     private static void AppendDateRangeFilter(
         NpgsqlCommand cmd,
         StringBuilder sql,
-        TransactionQueryFilters filters)
+        TransactionsQuery filters)
     {
         if (filters.DateFromInclusive is { } dateFrom)
         {
@@ -860,7 +836,7 @@ public sealed class TransactionRepository(
     private static void AppendAmountFilter(
         NpgsqlCommand cmd,
         StringBuilder sql,
-        TransactionQueryFilters filters)
+        TransactionsQuery filters)
     {
         if (filters.AbsAmountMin is { } minAmount)
         {
@@ -877,7 +853,7 @@ public sealed class TransactionRepository(
 
     private static void AppendAmountFlowFilter(
         StringBuilder sql,
-        TransactionQueryFilters filters)
+        TransactionsQuery filters)
     {
         if (filters.AmountFlow is not { } flow)
         {

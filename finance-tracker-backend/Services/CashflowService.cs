@@ -7,7 +7,9 @@ using finance_tracker_backend.Types;
 
 namespace finance_tracker_backend.Services;
 
-public sealed class CashflowService(ITransactionRepository transactionRepository) : ICashflowService
+public sealed class CashflowService(
+    ITransactionRepository transactionRepository,
+    CustomCategorySetHelper customCategorySetHelper) : ICashflowService
 {
     public async Task<CashflowResponse> GetAsync(
         ClaimsPrincipal user,
@@ -19,7 +21,23 @@ public sealed class CashflowService(ITransactionRepository transactionRepository
         if (string.IsNullOrWhiteSpace(request.DateFrom) || string.IsNullOrWhiteSpace(request.DateTo))
             throw new ArgumentException("dateFrom and dateTo are required.");
 
-        var filters = TransactionQueryFilterHelper.CreateForAnalyticsAggregation(request);
+        var customCategorySetData = request.CustomCategorySetId is { } customCategorySetId
+            ? await customCategorySetHelper
+                .LoadCustomCategoryByPfcPrimaryAsync(profileId, customCategorySetId, request.CustomCategoryIds, cancellationToken)
+                .ConfigureAwait(false)
+            : null;
+        var customPfcPrimaryList = customCategorySetData is not null && request.CustomCategoryIds is { Count: > 0 }
+            ? customCategorySetData.Keys
+                .Select(pfcPrimary => pfcPrimary.PfcPrimaryCode)
+                .Where(code => !string.IsNullOrWhiteSpace(code))
+                .Distinct(StringComparer.Ordinal)
+                .ToList()
+            : null;
+
+        if (customPfcPrimaryList is not null)
+            request.PfcPrimaryList = customPfcPrimaryList;
+
+        var filters = TransactionsQueryHelper.CreateForAnalyticsAggregation(request);
         if (filters.DateFromInclusive is not { } from || filters.DateToInclusive is not { } to)
             throw new ArgumentException("dateFrom and dateTo are required.");
 
