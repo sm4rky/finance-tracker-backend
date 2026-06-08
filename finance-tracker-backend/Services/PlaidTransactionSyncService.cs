@@ -19,6 +19,7 @@ public sealed class PlaidTransactionSyncService(
     ILinkedBankRepository linkedBankRepository,
     ILinkedBankAccountRepository linkedBankAccountRepository,
     ITransactionRepository transactionRepository,
+    IBudgetPeriodRefreshService budgetPeriodRefreshService,
     PlaidAccessTokenProtector tokenProtector,
     ILogger<PlaidTransactionSyncService> logger) : IPlaidTransactionSyncService
 {
@@ -64,6 +65,7 @@ public sealed class PlaidTransactionSyncService(
 
         string? lastStatus = null;
         var cursor = bank.PlaidTransactionsCursor;
+        var affectedDates = new HashSet<DateOnly>();
 
         while (true)
         {
@@ -105,18 +107,28 @@ public sealed class PlaidTransactionSyncService(
             lastStatus = response.TransactionsUpdateStatus.ToString();
 
             foreach (var t in response.Added ?? [])
-                await UpsertFromPlaidAsync(t, profileId, linkedBankId, cancellationToken).ConfigureAwait(false);
+                await UpsertFromPlaidAsync(t, profileId, linkedBankId, affectedDates, cancellationToken)
+                    .ConfigureAwait(false);
 
             foreach (var t in response.Modified ?? [])
-                await UpsertFromPlaidAsync(t, profileId, linkedBankId, cancellationToken).ConfigureAwait(false);
+                await UpsertFromPlaidAsync(t, profileId, linkedBankId, affectedDates, cancellationToken)
+                    .ConfigureAwait(false);
 
             foreach (var r in response.Removed ?? [])
             {
                 if (string.IsNullOrWhiteSpace(r.TransactionId))
                     continue;
+
+                var plaidTransactionId = r.TransactionId.Trim();
+                var existing = await transactionRepository
+                    .GetByProfileAndPlaidTransactionIdAsync(profileId, plaidTransactionId, cancellationToken)
+                    .ConfigureAwait(false);
+                if (existing is not null)
+                    affectedDates.Add(existing.Date);
+
                 await transactionRepository.SetRemovedAtAsync(
                         profileId,
-                        r.TransactionId.Trim(),
+                        plaidTransactionId,
                         DateTimeOffset.UtcNow,
                         cancellationToken)
                     .ConfigureAwait(false);
@@ -135,6 +147,13 @@ public sealed class PlaidTransactionSyncService(
         if (bank.Status == "relink_required")
             bank.Status = "active";
         await linkedBankRepository.UpdateAsync(bank, cancellationToken).ConfigureAwait(false);
+
+        if (affectedDates.Count > 0)
+        {
+            await budgetPeriodRefreshService
+                .RefreshForProfileDatesAsync(profileId, affectedDates, cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         return new SyncPlaidTransactionsResponse
         {
@@ -226,6 +245,7 @@ public sealed class PlaidTransactionSyncService(
         PlaidTransaction p,
         Guid profileId,
         Guid linkedBankId,
+        ISet<DateOnly> affectedDates,
         CancellationToken cancellationToken)
     {
         var tid = p.TransactionId?.Trim();
@@ -259,7 +279,9 @@ public sealed class PlaidTransactionSyncService(
 
             if (duplicate is not null)
             {
+                affectedDates.Add(duplicate.Date);
                 MapPlaidToRow(duplicate, p, linkedAccountId, status, now);
+                affectedDates.Add(duplicate.Date);
                 await transactionRepository.UpdateAsync(duplicate, cancellationToken).ConfigureAwait(false);
                 return true;
             }
@@ -271,11 +293,14 @@ public sealed class PlaidTransactionSyncService(
                 CreatedAt = now
             };
             MapPlaidToRow(row, p, linkedAccountId, status, now);
+            affectedDates.Add(row.Date);
             await transactionRepository.InsertAsync(row, cancellationToken).ConfigureAwait(false);
             return true;
         }
 
+        affectedDates.Add(existing.Date);
         MapPlaidToRow(existing, p, linkedAccountId, status, now);
+        affectedDates.Add(existing.Date);
         await transactionRepository.UpdateAsync(existing, cancellationToken).ConfigureAwait(false);
         return true;
     }

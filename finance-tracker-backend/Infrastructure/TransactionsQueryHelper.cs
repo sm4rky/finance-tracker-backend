@@ -63,6 +63,31 @@ public static class TransactionsQueryHelper
         AmountFlow = string.IsNullOrWhiteSpace(request.AmountFlow) ? null : ParseTransactionFlow(request.AmountFlow)
     };
 
+    public static TransactionsQuery CreateForBudgetPeriod(
+        IReadOnlyList<Guid> accountIds,
+        bool includeUnlinkedTransactions,
+        IReadOnlyList<string> pfcPrimaryList,
+        DateOnly periodStartDate,
+        DateOnly periodEndDate,
+        bool includeIncome)
+    {
+        return new TransactionsQuery
+        {
+            Offset = 0,
+            Limit = 1,
+            SortBy = TransactionSortField.Date,
+            Descending = true,
+            AccountIds = accountIds.Distinct().ToList(),
+            IncludeUnlinkedTransactions = includeUnlinkedTransactions,
+            PfcPrimaryList = pfcPrimaryList.Distinct(StringComparer.Ordinal).ToList(),
+            IncludeAllPaymentChannels = true,
+            Pending = false,
+            DateFromInclusive = periodStartDate,
+            DateToInclusive = periodEndDate,
+            AmountFlow = includeIncome ? null : TransactionFlow.Expense
+        };
+    }
+
     public static TransactionFlow ParseTransactionFlow(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) throw new ArgumentException("amountFlow is required.");

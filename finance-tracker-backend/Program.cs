@@ -144,6 +144,7 @@ builder.Services.AddTransient<ExpiredPlaidLinkSessionsCleanupJob>();
 builder.Services.AddTransient<PlaidTransactionSyncJob>();
 builder.Services.AddTransient<MonthlyNetWorthJob>();
 builder.Services.AddTransient<RecurringCashflowPredictedDateAdvanceJob>();
+builder.Services.AddTransient<BudgetPeriodMaintenanceJob>();
 
 // Repositories
 builder.Services.AddScoped<IProfileRepository, ProfileRepository>();
@@ -162,6 +163,10 @@ builder.Services.AddScoped<IPushSubscriptionRepository, PushSubscriptionReposito
 builder.Services.AddScoped<IProfileCustomCategorySetRepository, ProfileCustomCategorySetRepository>();
 builder.Services.AddScoped<IProfileCustomCategoryRepository, ProfileCustomCategoryRepository>();
 builder.Services.AddScoped<IProfileCustomCategoryPfcPrimaryRepository, ProfileCustomCategoryPfcPrimaryRepository>();
+builder.Services.AddScoped<IProfileBudgetRepository, ProfileBudgetRepository>();
+builder.Services.AddScoped<IProfileBudgetCategoryRepository, ProfileBudgetCategoryRepository>();
+builder.Services.AddScoped<IProfileBudgetBankAccountRepository, ProfileBudgetBankAccountRepository>();
+builder.Services.AddScoped<IProfileBudgetPeriodRepository, ProfileBudgetPeriodRepository>();
 
 // Services
 builder.Services.AddHttpClient<IResendTemplateEmailSender, ResendTemplateEmailSender>((sp, client) =>
@@ -203,6 +208,9 @@ builder.Services.AddScoped<IPlanService, PlanService>();
 builder.Services.AddScoped<INotificationPreferenceService, NotificationPreferenceService>();
 builder.Services.AddScoped<IPushSubscriptionService, PushSubscriptionService>();
 builder.Services.AddScoped<IProfileCustomCategorySetService, ProfileCustomCategorySetService>();
+builder.Services.AddScoped<IBudgetPeriodRefreshService, BudgetPeriodRefreshService>();
+builder.Services.AddScoped<IBudgetPeriodMaintenanceService, BudgetPeriodMaintenanceService>();
+builder.Services.AddScoped<IProfileBudgetService, ProfileBudgetService>();
 
 var app = builder.Build();
 
@@ -242,6 +250,14 @@ app.Services.GetRequiredService<IRecurringJobManager>().AddOrUpdate(
     "recurring-cashflow-predicted-date-advance",
     Job.FromExpression<RecurringCashflowPredictedDateAdvanceJob>(job => job.RunAsync()),
     recurringCashflowAdvanceCron,
+    new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+
+var budgetPeriodMaintenanceCron =
+    app.Configuration["Hangfire:BudgetPeriodMaintenanceCron"] ?? "30 1 * * *";
+app.Services.GetRequiredService<IRecurringJobManager>().AddOrUpdate(
+    "budget-period-maintenance",
+    Job.FromExpression<BudgetPeriodMaintenanceJob>(job => job.RunAsync()),
+    budgetPeriodMaintenanceCron,
     new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
 
 if (app.Environment.IsDevelopment())

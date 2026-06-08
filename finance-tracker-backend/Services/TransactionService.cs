@@ -15,7 +15,8 @@ public sealed class TransactionService(
     ITransactionRepository transactionRepository,
     ILinkedBankAccountRepository linkedBankAccountRepository,
     ILinkedBankRepository linkedBankRepository,
-    CustomCategorySetHelper customCategorySetHelper) : ITransactionService
+    CustomCategorySetHelper customCategorySetHelper,
+    IBudgetPeriodRefreshService budgetPeriodRefreshService) : ITransactionService
 {
     private const string IsoCurrencyCodeUsd = "USD";
     private const int MaxDeleteTransactionBatchSize = 100;
@@ -173,6 +174,10 @@ public sealed class TransactionService(
         };
 
         await transactionRepository.InsertAsync(row, cancellationToken).ConfigureAwait(false);
+        await budgetPeriodRefreshService
+            .RefreshForProfileDatesAsync(profileId, [row.Date], cancellationToken)
+            .ConfigureAwait(false);
+
         return ToTransactionResponse(row, account: null, customCategoryByPfcPrimary: null);
     }
 
@@ -193,6 +198,8 @@ public sealed class TransactionService(
 
         if (existing.RemovedAt is not null)
             throw new ArgumentException("Removed transactions cannot be edited.");
+
+        var previousDate = existing.Date;
 
         var linkedBankAccountId = await EnsureLinkedBankAccountBelongsToProfileAsync(
                 profileId,
@@ -228,6 +235,10 @@ public sealed class TransactionService(
         existing.UpdatedAt = DateTimeOffset.UtcNow;
 
         await transactionRepository.UpdateAsync(existing, cancellationToken).ConfigureAwait(false);
+        await budgetPeriodRefreshService
+            .RefreshForProfileDatesAsync(profileId, [previousDate, existing.Date], cancellationToken)
+            .ConfigureAwait(false);
+
         return ToTransactionResponse(existing, account: null, customCategoryByPfcPrimary: null);
     }
 
@@ -251,9 +262,26 @@ public sealed class TransactionService(
                     $"transactionIds cannot contain more than {MaxDeleteTransactionBatchSize} ids.");
             default:
             {
+                var affectedDates = new List<DateOnly>();
+                foreach (var transactionId in distinctIds)
+                {
+                    var transaction = await transactionRepository
+                        .GetByIdForProfileAsync(profileId, transactionId, cancellationToken)
+                        .ConfigureAwait(false);
+                    if (transaction is not null)
+                        affectedDates.Add(transaction.Date);
+                }
+
                 var deletedCount = await transactionRepository
                     .DeleteByIdsForProfileAsync(profileId, distinctIds, cancellationToken)
                     .ConfigureAwait(false);
+
+                if (affectedDates.Count > 0)
+                {
+                    await budgetPeriodRefreshService
+                        .RefreshForProfileDatesAsync(profileId, affectedDates, cancellationToken)
+                        .ConfigureAwait(false);
+                }
 
                 return new DeleteTransactionsResponse { DeletedCount = deletedCount };
             }

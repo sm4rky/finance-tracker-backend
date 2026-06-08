@@ -11,6 +11,7 @@ public sealed record TransactionsQuery
     public IReadOnlyList<string> PfcPrimaryList { get; init; } = [];
     public bool IncludePfcUncategorized { get; init; }
     public IReadOnlyList<string> PaymentChannels { get; init; } = [];
+    public bool IncludeAllPaymentChannels { get; init; }
     public bool? Pending { get; init; }
     public DateOnly? DateFromInclusive { get; init; }
     public DateOnly? DateToInclusive { get; init; }
