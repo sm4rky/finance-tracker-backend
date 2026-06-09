@@ -474,6 +474,17 @@ public sealed class TransactionRepository(
         return (income, expenses);
     }
 
+    public async Task<decimal> SumBudgetSpentAmountAsync(
+        Guid profileId,
+        TransactionsQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        var (income, expenses) = await SumIncomeAndExpenseAsync(profileId, query, cancellationToken)
+            .ConfigureAwait(false);
+
+        return expenses - income;
+    }
+
     public async Task<IReadOnlyList<(string? PfcPrimary, decimal TotalExpenses)>> SumExpensesByPfcPrimaryAsync(
         Guid profileId,
         TransactionsQuery query,
@@ -779,6 +790,9 @@ public sealed class TransactionRepository(
         StringBuilder sql,
         TransactionsQuery filters)
     {
+        if (filters.IncludeAllPaymentChannels)
+            return;
+
         if (filters.PaymentChannels.Count == 0)
         {
             sql.Append(" AND FALSE");
