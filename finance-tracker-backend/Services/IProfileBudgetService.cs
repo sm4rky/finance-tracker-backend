@@ -22,6 +22,7 @@ public interface IProfileBudgetService
 
     Task<IReadOnlyList<ProfileBudgetPeriodResponse>> ListOngoingPeriodsAsync(
         ClaimsPrincipal user,
+        int? limit = null,
         CancellationToken cancellationToken = default);
 
     Task<ProfileBudgetResponse> CreateAsync(

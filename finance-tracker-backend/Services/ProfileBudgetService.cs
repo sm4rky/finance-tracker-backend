@@ -62,9 +62,17 @@ public sealed class ProfileBudgetService(
 
     public async Task<IReadOnlyList<ProfileBudgetPeriodResponse>> ListOngoingPeriodsAsync(
         ClaimsPrincipal user,
+        int? limit = null,
         CancellationToken cancellationToken = default)
     {
         var profileId = user.RequireProfileId();
+        var take = limit switch
+        {
+            null => 5,
+            < 1 => throw new ArgumentException("limit must be at least 1."),
+            _ => limit.Value
+        };
+
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var periods = await budgetPeriodRepository
             .ListActiveBudgetPeriodsContainingAnyDateAsync(profileId, [today], cancellationToken)
@@ -73,6 +81,7 @@ public sealed class ProfileBudgetService(
         return periods
             .OrderBy(p => p.PeriodEndDate)
             .ThenBy(p => p.PeriodName)
+            .Take(take)
             .Select(ToPeriodResponse)
             .ToList();
     }
