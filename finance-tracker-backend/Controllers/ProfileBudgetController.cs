@@ -24,11 +24,13 @@ public sealed class ProfileBudgetController(IProfileBudgetService profileBudgetS
     [HttpGet("ongoing-periods")]
     [Produces("application/json")]
     [ProducesResponseType(typeof(IReadOnlyList<ProfileBudgetPeriodResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<IReadOnlyList<ProfileBudgetPeriodResponse>>> ListOngoingPeriods(
+        [FromQuery] int? limit,
         CancellationToken cancellationToken)
     {
-        var items = await profileBudgetService.ListOngoingPeriodsAsync(User, cancellationToken)
+        var items = await profileBudgetService.ListOngoingPeriodsAsync(User, limit, cancellationToken)
             .ConfigureAwait(false);
         return Ok(items);
     }
