@@ -10,7 +10,8 @@ public sealed class BudgetPeriodRefreshService(
     IProfileBudgetBankAccountRepository budgetBankAccountRepository,
     IProfileBudgetPeriodRepository budgetPeriodRepository,
     ITransactionRepository transactionRepository,
-    CustomCategorySetHelper customCategorySetHelper) : IBudgetPeriodRefreshService
+    CustomCategorySetHelper customCategorySetHelper,
+    IBudgetAlertNotificationService budgetAlertNotificationService) : IBudgetPeriodRefreshService
 {
     public async Task RefreshForProfileDatesAsync(
         Guid profileId,
@@ -104,6 +105,10 @@ public sealed class BudgetPeriodRefreshService(
 
         await budgetPeriodRepository
             .UpdateSpentAmountAsync(period.Id, spentAmount, DateTimeOffset.UtcNow, cancellationToken)
+            .ConfigureAwait(false);
+
+        await budgetAlertNotificationService
+            .SendBudgetAlertAsync(budget, period, spentAmount, cancellationToken)
             .ConfigureAwait(false);
     }
 

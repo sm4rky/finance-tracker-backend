@@ -217,6 +217,7 @@ builder.Services.AddScoped<IBudgetPeriodRefreshService, BudgetPeriodRefreshServi
 builder.Services.AddScoped<IBudgetPeriodMaintenanceService, BudgetPeriodMaintenanceService>();
 builder.Services.AddScoped<IProfileBudgetService, ProfileBudgetService>();
 builder.Services.AddScoped<IDueReminderNotificationService, DueReminderNotificationService>();
+builder.Services.AddScoped<IBudgetAlertNotificationService, BudgetAlertNotificationService>();
 
 var app = builder.Build();
 
