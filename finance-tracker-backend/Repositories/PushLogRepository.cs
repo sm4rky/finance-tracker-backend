@@ -2,14 +2,14 @@ using finance_tracker_backend.Models;
 
 namespace finance_tracker_backend.Repositories;
 
-public sealed class EmailLogRepository(Supabase.Client supabaseClient) : IEmailLogRepository
+public sealed class PushLogRepository(Supabase.Client supabaseClient) : IPushLogRepository
 {
     public async Task<bool> ExistsByProfileAndDedupeKeyAsync(
         Guid profileId,
         string dedupeKey,
         CancellationToken cancellationToken = default)
     {
-        var result = await supabaseClient.From<EmailLog>()
+        var result = await supabaseClient.From<PushLog>()
             .Where(x => x.ProfileId == profileId)
             .Where(x => x.DedupeKey == dedupeKey)
             .Get(cancellationToken)
@@ -18,8 +18,8 @@ public sealed class EmailLogRepository(Supabase.Client supabaseClient) : IEmailL
         return result.Models.Count > 0;
     }
 
-    public async Task InsertAsync(EmailLog log, CancellationToken cancellationToken = default)
+    public async Task InsertAsync(PushLog log, CancellationToken cancellationToken = default)
     {
-        await supabaseClient.From<EmailLog>().Insert(log, cancellationToken: cancellationToken).ConfigureAwait(false);
+        await supabaseClient.From<PushLog>().Insert(log, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 }

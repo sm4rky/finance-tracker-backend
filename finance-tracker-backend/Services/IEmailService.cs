@@ -2,9 +2,12 @@ namespace finance_tracker_backend.Services;
 
 public interface IEmailService
 {
-    Task SendWelcomeForNewProfileAsync(
+    Task SendEmailAsync(
         Guid profileId,
         string recipientEmail,
-        string? displayName,
+        string templateId,
+        string? subject,
+        string dedupeKey,
+        IReadOnlyDictionary<string, string>? variables,
         CancellationToken cancellationToken = default);
 }

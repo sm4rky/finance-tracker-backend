@@ -2,12 +2,12 @@ using finance_tracker_backend.Models;
 
 namespace finance_tracker_backend.Repositories;
 
-public interface IEmailLogRepository
+public interface IPushLogRepository
 {
     Task<bool> ExistsByProfileAndDedupeKeyAsync(
         Guid profileId,
         string dedupeKey,
         CancellationToken cancellationToken = default);
 
-    Task InsertAsync(EmailLog log, CancellationToken cancellationToken = default);
+    Task InsertAsync(PushLog log, CancellationToken cancellationToken = default);
 }

@@ -5,6 +5,9 @@ namespace finance_tracker_backend.Types;
 internal sealed record ResendTemplateEmailPayload(
     [property: JsonPropertyName("from")] string From,
     [property: JsonPropertyName("to")] string[] To,
+    [property: JsonPropertyName("subject")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? Subject,
     [property: JsonPropertyName("template")]
     ResendTemplateReference Template);
 

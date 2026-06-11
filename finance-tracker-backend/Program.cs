@@ -23,6 +23,7 @@ using Microsoft.IdentityModel.Tokens;
 //   PlaidTransactionSyncJob (Hangfire:PlaidTransactionSyncCron, default 02:00 UTC on day 1 of the month; Hangfire:PlaidSyncBatchSize);
 //   MonthlyNetWorthJob (Hangfire:MonthlyNetWorthCron, default 03:00 UTC on day 1 of the month; Hangfire:MonthlyNetWorthBatchSize);
 //   RecurringCashflowPredictedDateAdvanceJob (Hangfire:RecurringCashflowPredictedDateAdvanceCron, default 01:00 UTC daily; batch Hangfire:RecurringCashflowAdvanceBatchSize; rows with predicted_next_date <= UTC run date, multi-step catch-up per row).
+//   DueReminderNotificationJob (Hangfire:DueReminderNotificationCron, default 12:00 UTC daily; Hangfire:DueReminderNotificationBatchSize).
 // • Optional: /hangfire dashboard — add UseHangfireDashboard in Development if you want the UI (not enabled by default).
 
 var builder = WebApplication.CreateBuilder(args);
@@ -145,6 +146,7 @@ builder.Services.AddTransient<PlaidTransactionSyncJob>();
 builder.Services.AddTransient<MonthlyNetWorthJob>();
 builder.Services.AddTransient<RecurringCashflowPredictedDateAdvanceJob>();
 builder.Services.AddTransient<BudgetPeriodMaintenanceJob>();
+builder.Services.AddTransient<DueReminderNotificationJob>();
 
 // Repositories
 builder.Services.AddScoped<IProfileRepository, ProfileRepository>();
@@ -160,6 +162,7 @@ builder.Services.AddScoped<IPlaidFinanceCategoryPrimaryRepository, PlaidFinanceC
 builder.Services.AddScoped<IPlanRepository, PlanRepository>();
 builder.Services.AddScoped<IProfileNotificationPreferenceRepository, ProfileNotificationPreferenceRepository>();
 builder.Services.AddScoped<IPushSubscriptionRepository, PushSubscriptionRepository>();
+builder.Services.AddScoped<IPushLogRepository, PushLogRepository>();
 builder.Services.AddScoped<IProfileCustomCategorySetRepository, ProfileCustomCategorySetRepository>();
 builder.Services.AddScoped<IProfileCustomCategoryRepository, ProfileCustomCategoryRepository>();
 builder.Services.AddScoped<IProfileCustomCategoryPfcPrimaryRepository, ProfileCustomCategoryPfcPrimaryRepository>();
@@ -207,10 +210,14 @@ builder.Services.AddScoped<IGroupedExpensesByAccountService, GroupedExpensesByAc
 builder.Services.AddScoped<IPlanService, PlanService>();
 builder.Services.AddScoped<INotificationPreferenceService, NotificationPreferenceService>();
 builder.Services.AddScoped<IPushSubscriptionService, PushSubscriptionService>();
+builder.Services.AddScoped<IWebPushSender, WebPushSender>();
+builder.Services.AddScoped<IPushNotificationService, PushNotificationService>();
 builder.Services.AddScoped<IProfileCustomCategorySetService, ProfileCustomCategorySetService>();
 builder.Services.AddScoped<IBudgetPeriodRefreshService, BudgetPeriodRefreshService>();
 builder.Services.AddScoped<IBudgetPeriodMaintenanceService, BudgetPeriodMaintenanceService>();
 builder.Services.AddScoped<IProfileBudgetService, ProfileBudgetService>();
+builder.Services.AddScoped<IDueReminderNotificationService, DueReminderNotificationService>();
+builder.Services.AddScoped<IBudgetAlertNotificationService, BudgetAlertNotificationService>();
 
 var app = builder.Build();
 
@@ -258,6 +265,14 @@ app.Services.GetRequiredService<IRecurringJobManager>().AddOrUpdate(
     "budget-period-maintenance",
     Job.FromExpression<BudgetPeriodMaintenanceJob>(job => job.RunAsync()),
     budgetPeriodMaintenanceCron,
+    new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+
+var dueReminderNotificationCron =
+    app.Configuration["Hangfire:DueReminderNotificationCron"] ?? "0 8 * * *";
+app.Services.GetRequiredService<IRecurringJobManager>().AddOrUpdate(
+    "due-reminder-notifications",
+    Job.FromExpression<DueReminderNotificationJob>(job => job.RunAsync()),
+    dueReminderNotificationCron,
     new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
 
 if (app.Environment.IsDevelopment())

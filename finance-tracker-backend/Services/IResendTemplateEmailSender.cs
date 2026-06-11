@@ -7,6 +7,7 @@ public interface IResendTemplateEmailSender
     Task<EmailSendOutcome> SendWithTemplateAsync(
         string to,
         string templateId,
+        string? subject,
         IReadOnlyDictionary<string, string>? variables,
         CancellationToken cancellationToken = default);
 }
