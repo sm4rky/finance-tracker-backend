@@ -1,14 +1,17 @@
 using System.Security.Claims;
 using finance_tracker_backend.Contracts.Responses;
+using finance_tracker_backend.Infrastructure;
 
 namespace finance_tracker_backend.Services;
 
 public sealed class EnsureUserService(
     IProfileService profileService,
     IProfileSubscriptionService profileSubscriptionService,
-    IEmailService emailService) : IEnsureUserService
+    IEmailService emailService,
+    IConfiguration configuration) : IEnsureUserService
 {
-    public async Task<EnsureUserResponse> EnsureAsync(ClaimsPrincipal user, CancellationToken cancellationToken = default)
+    public async Task<EnsureUserResponse> EnsureAsync(ClaimsPrincipal user,
+        CancellationToken cancellationToken = default)
     {
         var created = await profileService.EnsureRecordExistsAsync(user, cancellationToken).ConfigureAwait(false);
         await profileSubscriptionService.EnsureDefaultFreePlanExistsAsync(user, cancellationToken)
@@ -34,10 +37,34 @@ public sealed class EnsureUserService(
 
         var username = string.IsNullOrWhiteSpace(profile.Username) ? null : profile.Username.Trim();
 
-        if (created)
-            await emailService
-                .SendWelcomeForNewProfileAsync(userId, email, string.IsNullOrEmpty(fullName) ? null : fullName, cancellationToken)
-                .ConfigureAwait(false);
+        if (!created)
+            return new EnsureUserResponse
+            {
+                Email = email,
+                FullName = fullName,
+                AvatarUrl = avatar,
+                Username = username,
+                Role = profile.Role,
+                PasswordLoginEnabled = profile.PasswordLoginEnabled,
+                Plan = planFromDb ?? string.Empty
+            };
+
+        var templateId = configuration["Resend:WelcomeTemplateId"]?.Trim() ?? string.Empty;
+        var appUrl = configuration["Application:PublicUrl"]?.Trim();
+        if (string.IsNullOrEmpty(appUrl))
+            appUrl = "http://localhost:3000";
+
+        var variables = new Dictionary<string, string>(StringComparer.Ordinal) { ["app_url"] = appUrl };
+        await emailService
+            .SendEmailAsync(
+                userId,
+                email,
+                templateId,
+                null,
+                NotificationDedupeKeys.Welcome(),
+                variables,
+                cancellationToken)
+            .ConfigureAwait(false);
 
         return new EnsureUserResponse
         {

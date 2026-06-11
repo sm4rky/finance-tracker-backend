@@ -21,8 +21,6 @@ public class PushLog : BaseModel
     [Column("status")]
     public string Status { get; set; } = string.Empty;
 
-    [Column("provider_message_id")]
-    public string? ProviderMessageId { get; set; }
 
     [Column("error_message")]
     public string? ErrorMessage { get; set; }

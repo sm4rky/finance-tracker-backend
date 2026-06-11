@@ -10,6 +10,7 @@ public sealed class ResendTemplateEmailSender(HttpClient httpClient, IConfigurat
     public async Task<EmailSendOutcome> SendWithTemplateAsync(
         string to,
         string templateId,
+        string? subject,
         IReadOnlyDictionary<string, string>? variables,
         CancellationToken cancellationToken = default)
     {
@@ -20,10 +21,9 @@ public sealed class ResendTemplateEmailSender(HttpClient httpClient, IConfigurat
         if (string.IsNullOrWhiteSpace(templateId))
             return new EmailSendOutcome(false, null, "template id is empty.");
 
-        var payload = new ResendTemplateEmailPayload(
-            fromAddress,
-            [to],
-            new ResendTemplateReference(templateId.Trim(), variables));
+        var template = new ResendTemplateReference(templateId, variables);
+        var payload = new ResendTemplateEmailPayload(fromAddress, [to], subject, template);
+
         using var response = await httpClient
             .PostAsJsonAsync("emails", payload, cancellationToken)
             .ConfigureAwait(false);
@@ -32,14 +32,17 @@ public sealed class ResendTemplateEmailSender(HttpClient httpClient, IConfigurat
         if (!response.IsSuccessStatusCode)
             return new EmailSendOutcome(false, null, body);
 
+        string? providerMessageId = null;
         try
         {
             var ok = System.Text.Json.JsonSerializer.Deserialize<ResendEmailIdResponse>(body);
-            return new EmailSendOutcome(true, ok?.Id, null);
+            providerMessageId = ok?.Id;
         }
         catch
         {
-            return new EmailSendOutcome(true, null, null);
+            // ignored
         }
+
+        return new EmailSendOutcome(true, providerMessageId, null);
     }
 }
